@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 import threading
@@ -9,10 +10,13 @@ class Conversation:
     escalation_msg_id: Optional[int] = None
     drive_cache: dict = field(default_factory=dict)
     greeted: bool = False
+    admin_silenced_at: Optional[float] = None
 
 _store: dict[str, Conversation] = {}
 _lock = threading.Lock()
 _telegram_to_psid: dict[int, str] = {}
+_bot_sent_mids: dict[str, float] = {}
+_mids_lock = threading.Lock()
 
 
 def get_or_create(psid: str) -> Conversation:
@@ -86,3 +90,44 @@ def set_drive_cache(psid: str, query: str, result: str):
     conv = get_or_create(psid)
     with _lock:
         conv.drive_cache[query] = result
+
+
+# ── Admin inbox takeover ─────────────────────────────────────────────────────
+
+def register_bot_mid(mid: str):
+    """Track a message ID sent by the bot so inbox echoes can be distinguished."""
+    with _mids_lock:
+        _bot_sent_mids[mid] = time.time()
+        cutoff = time.time() - 300
+        stale = [k for k, v in _bot_sent_mids.items() if v < cutoff]
+        for k in stale:
+            del _bot_sent_mids[k]
+
+
+def is_bot_mid(mid: str) -> bool:
+    return mid in _bot_sent_mids
+
+
+def set_admin_silenced(psid: str):
+    conv = get_or_create(psid)
+    with _lock:
+        conv.admin_silenced_at = time.time()
+
+
+def is_admin_silenced(psid: str, timeout: float) -> bool:
+    conv = get_or_create(psid)
+    if conv.admin_silenced_at is None:
+        return False
+    if time.time() - conv.admin_silenced_at > timeout:
+        with _lock:
+            conv.admin_silenced_at = None
+        return False
+    return True
+
+
+def refresh_admin_silence(psid: str):
+    """Update the silence timestamp so the timeout resets on each admin message."""
+    conv = get_or_create(psid)
+    with _lock:
+        if conv.admin_silenced_at is not None:
+            conv.admin_silenced_at = time.time()

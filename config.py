@@ -25,3 +25,4 @@ GREETING_MESSAGE = os.environ.get(
     "GREETING_MESSAGE",
     "Hi there! Thanks for reaching out. How can I help you today?",
 )
+ADMIN_SILENCE_TIMEOUT = int(os.environ.get("ADMIN_SILENCE_TIMEOUT_MINUTES", "30")) * 60

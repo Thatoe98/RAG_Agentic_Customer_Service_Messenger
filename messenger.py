@@ -1,4 +1,5 @@
 import httpx
+import store
 from config import FB_PAGE_ACCESS_TOKEN
 
 _BASE = "https://graph.facebook.com/v19.0"
@@ -16,6 +17,9 @@ async def send_message(recipient_psid: str, text: str):
             },
         )
         resp.raise_for_status()
+        mid = resp.json().get("message_id", "")
+        if mid:
+            store.register_bot_mid(mid)
 
 
 async def send_typing(recipient_psid: str):

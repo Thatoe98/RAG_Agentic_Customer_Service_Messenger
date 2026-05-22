@@ -9,7 +9,7 @@ from fastapi.responses import PlainTextResponse
 import messenger
 import store
 from agent import handle_message
-from config import FB_APP_SECRET, FB_VERIFY_TOKEN, GREETING_MESSAGE
+from config import ADMIN_SILENCE_TIMEOUT, FB_APP_SECRET, FB_VERIFY_TOKEN, GREETING_MESSAGE
 from tools.handover import notify_supervisor
 
 log = logging.getLogger(__name__)
@@ -50,7 +50,20 @@ async def fb_webhook(request: Request):
     for entry in payload.get("entry", []):
         for event in entry.get("messaging", []):
             msg = event.get("message", {})
-            if msg and not msg.get("is_echo"):
+            if not msg:
+                continue
+            if msg.get("is_echo"):
+                mid = msg.get("mid", "")
+                text = msg.get("text", "")
+                if text and not store.is_bot_mid(mid):
+                    # A human admin sent this directly from the Page inbox
+                    psid = event["recipient"]["id"]
+                    if store.is_admin_silenced(psid, ADMIN_SILENCE_TIMEOUT):
+                        store.refresh_admin_silence(psid)
+                    else:
+                        log.info("Admin inbox takeover detected for %s", psid)
+                        store.set_admin_silenced(psid)
+            else:
                 psid = event["sender"]["id"]
                 text = msg.get("text", "").strip()
                 if text:
@@ -61,6 +74,9 @@ async def fb_webhook(request: Request):
 
 async def _process(psid: str, text: str):
     try:
+        if store.is_admin_silenced(psid, ADMIN_SILENCE_TIMEOUT):
+            log.info("Bot silenced by admin for %s; ignoring message", psid)
+            return
         await messenger.send_typing(psid)
         if not store.is_greeted(psid):
             store.mark_greeted(psid)
