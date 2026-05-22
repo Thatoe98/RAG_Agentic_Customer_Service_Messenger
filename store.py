@@ -8,6 +8,7 @@ class Conversation:
     escalated: bool = False
     escalation_msg_id: Optional[int] = None
     drive_cache: dict = field(default_factory=dict)
+    greeted: bool = False
 
 _store: dict[str, Conversation] = {}
 _lock = threading.Lock()
@@ -60,6 +61,21 @@ def register_telegram_msg(psid: str, msg_id: int):
 
 def psid_from_telegram_msg(telegram_msg_id: int) -> Optional[str]:
     return _telegram_to_psid.get(telegram_msg_id)
+
+
+def clear_messages(psid: str):
+    conv = get_or_create(psid)
+    with _lock:
+        conv.messages = []
+        conv.drive_cache = {}
+
+
+def mark_greeted(psid: str):
+    get_or_create(psid).greeted = True
+
+
+def is_greeted(psid: str) -> bool:
+    return get_or_create(psid).greeted
 
 
 def get_drive_cache(psid: str, query: str) -> Optional[str]:

@@ -61,9 +61,9 @@ async def fb_webhook(request: Request):
 
 async def _process(psid: str, text: str):
     try:
-        is_first = not store.get_messages(psid) and not store.is_escalated(psid)
         await messenger.send_typing(psid)
-        if is_first:
+        if not store.is_greeted(psid):
+            store.mark_greeted(psid)
             await messenger.send_message(psid, GREETING_MESSAGE)
         reply = await handle_message(psid, text)
         if reply:
@@ -109,6 +109,7 @@ async def telegram_webhook(request: Request):
     # /done — hand conversation back to bot
     if text.lower().startswith("/done"):
         store.reset_escalation(psid)
+        store.clear_messages(psid)
         await messenger.send_message(
             psid,
             "Our team has finished assisting you. Is there anything else I can help you with?",
