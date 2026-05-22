@@ -94,6 +94,7 @@ async def handle_message(psid: str, user_text: str) -> str | None:
 
         if not function_calls:
             text = "".join(p.text for p in parts if getattr(p, "text", None))
+            log.info("Gemini text reply for %s: %s", psid, text[:120])
             store.add_message(psid, "assistant", text)
             return text
 
@@ -101,6 +102,7 @@ async def handle_message(psid: str, user_text: str) -> str | None:
         response_parts = []
         for part in function_calls:
             fc = part.function_call
+            log.info("Gemini tool call: %s(%s)", fc.name, dict(fc.args))
             result = await _execute_tool(psid, fc.name, dict(fc.args))
             response_parts.append(
                 types.Part(
@@ -128,13 +130,19 @@ async def _execute_tool(psid: str, name: str, args: dict) -> str:
         reason = args["reason"]
         user_profile = await get_user_profile(psid)
         user_name = _display_name(user_profile, psid)
-        tg_msg_id = await notify_supervisor(
-            psid=psid,
-            user_name=user_name,
-            conversation=store.get_messages(psid),
-            reason=reason,
-        )
+        log.info("Escalating %s to Telegram. Reason: %s", psid, reason)
+        try:
+            tg_msg_id = await notify_supervisor(
+                psid=psid,
+                user_name=user_name,
+                conversation=store.get_messages(psid),
+                reason=reason,
+            )
+        except Exception:
+            log.exception("Failed to send Telegram notification for %s", psid)
+            return "Failed to notify supervisor — Telegram error."
         store.set_escalated(psid, tg_msg_id)
+        log.info("Escalation complete. Telegram msg_id=%s", tg_msg_id)
         return "Supervisor has been notified via Telegram."
 
     return f"Unknown tool: {name}"
