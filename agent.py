@@ -95,6 +95,10 @@ async def handle_message(psid: str, user_text: str) -> str | None:
         if not function_calls:
             text = "".join(p.text for p in parts if getattr(p, "text", None))
             log.info("Gemini text reply for %s: %s", psid, text[:120])
+            # Safety net: if Gemini wrote an escalation message without calling the tool, force it
+            if not store.is_escalated(psid) and _looks_like_escalation(text):
+                log.warning("Gemini skipped escalate_to_human tool — forcing escalation for %s", psid)
+                await _execute_tool(psid, "escalate_to_human", {"reason": "customer requested human assistance"})
             store.add_message(psid, "assistant", text)
             return text
 
@@ -165,6 +169,23 @@ def _build_contents(messages: list[dict]) -> list[types.Content]:
             types.Content(role=role, parts=[types.Part(text=m["content"])])
         )
     return contents
+
+
+_ESCALATION_PHRASES = [
+    "connecting you with",
+    "connecting you to",
+    "team member",
+    "human agent",
+    "speak with a person",
+    "speak to a person",
+    "transfer you",
+    "escalat",
+]
+
+
+def _looks_like_escalation(text: str) -> bool:
+    lower = text.lower()
+    return any(phrase in lower for phrase in _ESCALATION_PHRASES)
 
 
 def _display_name(profile: dict, fallback: str) -> str:
