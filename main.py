@@ -74,7 +74,7 @@ async def fb_webhook(request: Request):
 
 async def _process(psid: str, text: str):
     try:
-        if store.is_admin_silenced(psid, ADMIN_SILENCE_TIMEOUT):
+        if store.is_admin_silenced(psid, ADMIN_SILENCE_TIMEOUT) and not store.is_escalated(psid):
             log.info("Bot silenced by admin for %s; ignoring message", psid)
             return
         await messenger.send_typing(psid)
