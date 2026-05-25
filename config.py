@@ -10,7 +10,7 @@ FB_APP_SECRET = os.environ.get("FB_APP_SECRET", "")
 
 # Gemini
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-GEMINI_MODEL = "gemini-3-flash-preview"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 # Google Drive
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
