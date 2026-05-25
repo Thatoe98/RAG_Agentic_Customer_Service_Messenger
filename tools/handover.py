@@ -7,19 +7,18 @@ _TG = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 async def notify_supervisor(
     psid: str,
     user_name: str,
-    conversation: list[dict],
+    summary: str,
     reason: str,
 ) -> int:
     """
     Send escalation notice to the supervisor on Telegram.
     Returns the Telegram message_id of the notice (used to map replies back to PSID).
     """
-    transcript = _format_transcript(conversation)
     text = (
         f"🔔 *Handover Request*\n\n"
         f"*Customer:* {user_name}\n"
         f"*Reason:* {reason}\n\n"
-        f"*Conversation so far:*\n{transcript}\n\n"
+        f"*Conversation summary:*\n{summary}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"↩ *Reply to this message* to send a message to the customer.\n"
         f"Send /done as a reply when finished — the bot will resume."
@@ -65,9 +64,3 @@ async def forward_customer_message(
         return resp.json()["result"]["message_id"]
 
 
-def _format_transcript(messages: list[dict]) -> str:
-    lines = []
-    for m in messages:
-        label = "Customer" if m["role"] == "user" else "Bot"
-        lines.append(f"*{label}:* {m['content']}")
-    return "\n".join(lines)

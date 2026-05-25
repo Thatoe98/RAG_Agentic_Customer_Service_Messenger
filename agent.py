@@ -135,11 +135,12 @@ async def _execute_tool(psid: str, name: str, args: dict) -> str:
         user_profile = await get_user_profile(psid)
         user_name = _display_name(user_profile, psid)
         log.info("Escalating %s to Telegram. Reason: %s", psid, reason)
+        summary = await _summarize_conversation(store.get_messages(psid))
         try:
             tg_msg_id = await notify_supervisor(
                 psid=psid,
                 user_name=user_name,
-                conversation=store.get_messages(psid),
+                summary=summary,
                 reason=reason,
             )
         except Exception:
@@ -150,6 +151,23 @@ async def _execute_tool(psid: str, name: str, args: dict) -> str:
         return "Supervisor has been notified via Telegram."
 
     return f"Unknown tool: {name}"
+
+
+async def _summarize_conversation(messages: list[dict]) -> str:
+    transcript = "\n".join(
+        f"{'Customer' if m['role'] == 'user' else 'Bot'}: {m['content']}"
+        for m in messages
+    )
+    prompt = (
+        "Summarize this customer support conversation in 3-5 concise English bullet points "
+        "for a supervisor who is taking over. Cover: what the customer wants, key details they shared, "
+        "and why this is being escalated.\n\n" + transcript
+    )
+    response = await _client.aio.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+    )
+    return response.candidates[0].content.parts[0].text
 
 
 async def _drive_lookup(psid: str, query: str) -> str:
