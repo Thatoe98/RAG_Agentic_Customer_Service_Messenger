@@ -82,6 +82,19 @@ async def handle_message(psid: str, user_text: str) -> str | None:
     store.add_message(psid, "user", user_text)
     contents = _build_contents(store.get_messages(psid))
 
+    # Force escalation if customer explicitly asks for a human — don't trust the model for this
+    if _customer_wants_human(user_text):
+        log.info("Customer %s explicitly requested a human — forcing escalation", psid)
+        await _execute_tool(psid, "escalate_to_human", {"reason": "Customer explicitly requested to speak with a human"})
+        ack_contents = contents + [
+            types.Content(role="model", parts=[types.Part(function_call=types.FunctionCall(name="escalate_to_human", args={"reason": "Customer explicitly requested to speak with a human"}))]),
+            types.Content(role="user", parts=[types.Part(function_response=types.FunctionResponse(name="escalate_to_human", response={"result": "Supervisor has been notified via Telegram."}))]),
+        ]
+        ack = await _client.aio.models.generate_content(model=GEMINI_MODEL, contents=ack_contents, config=_GEN_CONFIG)
+        text = "".join(p.text for p in ack.candidates[0].content.parts if getattr(p, "text", None))
+        store.add_message(psid, "assistant", text)
+        return text
+
     for _ in range(10):  # safety cap on tool-call iterations
         response = await _client.aio.models.generate_content(
             model=GEMINI_MODEL,
@@ -187,6 +200,32 @@ def _build_contents(messages: list[dict]) -> list[types.Content]:
             types.Content(role=role, parts=[types.Part(text=m["content"])])
         )
     return contents
+
+
+_HUMAN_REQUEST_PHRASES = [
+    "speak with human",
+    "speak to human",
+    "talk to human",
+    "talk to a human",
+    "talk to person",
+    "speak with a person",
+    "want human",
+    "need human",
+    "human agent",
+    "real person",
+    "live agent",
+    "live support",
+    "connect me to",
+    "transfer me",
+    "human support",
+    "want to speak",
+    "want to talk",
+]
+
+
+def _customer_wants_human(text: str) -> bool:
+    lower = text.lower()
+    return any(phrase in lower for phrase in _HUMAN_REQUEST_PHRASES)
 
 
 _ESCALATION_PHRASES = [
