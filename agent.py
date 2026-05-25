@@ -14,7 +14,7 @@ from tools.handover import forward_customer_message, notify_supervisor
 log = logging.getLogger(__name__)
 
 _client = genai.Client(api_key=GEMINI_API_KEY)
-_SYSTEM_PROMPT = Path("prompts/system_prompt.txt").read_text()
+_SYSTEM_PROMPT = Path("prompts/system_prompt.txt").read_text(encoding="utf-8")
 
 _TOOLS = types.Tool(
     function_declarations=[
