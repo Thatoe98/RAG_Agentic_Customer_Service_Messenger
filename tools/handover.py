@@ -4,6 +4,13 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_SUPERVISOR_CHAT_ID
 _TG = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
+def _md(text: str) -> str:
+    """Escape Telegram Markdown v1 special characters in dynamic content."""
+    for ch in ["_", "*", "`", "["]:
+        text = text.replace(ch, f"\\{ch}")
+    return text
+
+
 async def notify_supervisor(
     psid: str,
     user_name: str,
@@ -16,9 +23,9 @@ async def notify_supervisor(
     """
     text = (
         f"🔔 *Handover Request*\n\n"
-        f"*Customer:* {user_name}\n"
-        f"*Reason:* {reason}\n\n"
-        f"*Conversation summary:*\n{summary}\n\n"
+        f"*Customer:* {_md(user_name)}\n"
+        f"*Reason:* {_md(reason)}\n\n"
+        f"*Conversation summary:*\n{_md(summary)}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"↩ *Reply to this message* to send a message to the customer.\n"
         f"Send /done as a reply when finished — the bot will resume."
@@ -55,7 +62,7 @@ async def forward_customer_message(
             f"{_TG}/sendMessage",
             json={
                 "chat_id": TELEGRAM_SUPERVISOR_CHAT_ID,
-                "text": f"💬 *{user_name}:* {text}",
+                "text": f"💬 *{_md(user_name)}:* {_md(text)}",
                 "parse_mode": "Markdown",
                 "reply_to_message_id": escalation_msg_id,
             },
