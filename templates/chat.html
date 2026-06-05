@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Training Chat{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+  <!-- Chat column -->
+  <section class="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col h-[75vh]">
+    <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+      <div>
+        <h2 class="font-semibold text-slate-900">Training Chat</h2>
+        <p class="text-xs text-slate-500">Tell the bot how to behave, or test what it knows.</p>
+      </div>
+      <form method="post" action="/admin/chat/clear"
+            onsubmit="return confirm('Clear the training chat history?')">
+        <button class="text-xs text-slate-400 hover:text-red-600">Clear chat</button>
+      </form>
+    </div>
+
+    <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3">
+      {% if not history %}
+      <p class="text-sm text-slate-400 text-center mt-8">
+        Try: “Always offer the free consultation to new students.” or
+        “Do we have info on tuition at Bangkok University?”
+      </p>
+      {% endif %}
+      {% for m in history %}
+        {% if m.role == 'user' %}
+        <div class="flex justify-end"><div class="bg-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%] whitespace-pre-wrap">{{ m.content }}</div></div>
+        {% else %}
+        <div class="flex justify-start"><div class="bg-slate-100 text-slate-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-[80%] whitespace-pre-wrap">{{ m.content }}</div></div>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <form class="border-t border-slate-200 p-3 flex gap-2"
+          hx-post="/admin/chat/send" hx-target="#messages" hx-swap="beforeend"
+          hx-disabled-elt="find button, find textarea"
+          hx-on::after-request="if(event.detail.successful){this.reset();this.querySelector('textarea').focus();}">
+      <textarea name="message" rows="1" required placeholder="Message the trainer…"
+                class="flex-1 resize-none border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.requestSubmit();}"></textarea>
+      <button class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-4 font-medium disabled:opacity-50">Send</button>
+    </form>
+  </section>
+
+  <!-- Guidelines sidebar -->
+  <aside class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 h-[75vh] overflow-y-auto">
+    <h3 class="font-semibold text-slate-900 mb-1">Active Guidelines</h3>
+    <p class="text-xs text-slate-500 mb-3">Behavior rules injected into the customer bot. Edit them through chat.</p>
+    {% if guidelines %}
+    <ul class="space-y-2">
+      {% for g in guidelines %}
+      <li class="text-sm bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+        <span class="text-slate-400 mr-1">#{{ g.id }}</span>{{ g.text }}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-sm text-slate-400">No guidelines yet.</p>
+    {% endif %}
+  </aside>
+</div>
+
+<script>
+  htmx.on("#messages", "htmx:afterSwap", () => {
+    const box = document.getElementById("messages");
+    box.scrollTop = box.scrollHeight;
+  });
+</script>
+{% endblock %}

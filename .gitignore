@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# RAG knowledge base (SQLite)
+data/
+*.db
+*.db-wal
+*.db-shm

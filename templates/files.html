@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Files{% endblock %}
+{% block content %}
+<div class="space-y-6">
+
+  {% if ok %}<div class="text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">{{ ok }}</div>{% endif %}
+  {% if error %}<div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">{{ error }}</div>{% endif %}
+
+  <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+    <h2 class="font-semibold text-slate-900 mb-1">Upload knowledge</h2>
+    <p class="text-sm text-slate-500 mb-4">PDF, DOCX, TXT, MD, or CSV. Files are chunked, embedded, and made searchable for the bot.</p>
+    <form method="post" action="/admin/files/upload" enctype="multipart/form-data" class="flex items-center gap-3">
+      <input type="file" name="file" required accept=".pdf,.docx,.txt,.md,.csv"
+             class="text-sm file:mr-3 file:rounded-md file:border-0 file:bg-indigo-600 file:text-white file:px-4 file:py-2 file:font-medium hover:file:bg-indigo-700">
+      <button class="bg-slate-800 hover:bg-slate-900 text-white rounded-md px-4 py-2 text-sm font-medium">Upload &amp; index</button>
+    </form>
+  </section>
+
+  <section class="bg-white rounded-xl border border-slate-200 shadow-sm">
+    <div class="px-5 py-3 border-b border-slate-200">
+      <h2 class="font-semibold text-slate-900">Indexed documents ({{ docs|length }})</h2>
+    </div>
+    {% if docs %}
+    <table class="w-full text-sm">
+      <thead class="text-left text-slate-500 border-b border-slate-200">
+        <tr>
+          <th class="px-5 py-2 font-medium">File</th>
+          <th class="px-5 py-2 font-medium">Chunks</th>
+          <th class="px-5 py-2 font-medium">Size</th>
+          <th class="px-5 py-2 font-medium">Uploaded</th>
+          <th class="px-5 py-2"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in docs %}
+        <tr class="border-b border-slate-100 last:border-0">
+          <td class="px-5 py-2.5 text-slate-800">{{ d.filename }}</td>
+          <td class="px-5 py-2.5 text-slate-600">{{ d.num_chunks }}</td>
+          <td class="px-5 py-2.5 text-slate-600">{{ d.size_kb }} KB</td>
+          <td class="px-5 py-2.5 text-slate-500">{{ d.uploaded_str }}</td>
+          <td class="px-5 py-2.5 text-right">
+            <form method="post" action="/admin/files/{{ d.id }}/delete"
+                  onsubmit="return confirm('Delete {{ d.filename }} from the knowledge base?')">
+              <button class="text-red-600 hover:text-red-800 text-xs font-medium">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="px-5 py-8 text-sm text-slate-400 text-center">No documents yet. Upload one above to start building the bot's knowledge.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

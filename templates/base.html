@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Bot Admin{% endblock %} · Cross Culture Education</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  {% block nav %}
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center gap-6">
+      <span class="font-semibold text-slate-900">CCE Bot Admin</span>
+      <nav class="flex gap-1 text-sm">
+        <a href="/admin/chat"
+           class="px-3 py-1.5 rounded-md {% if active == 'chat' %}bg-indigo-600 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">Training Chat</a>
+        <a href="/admin/files"
+           class="px-3 py-1.5 rounded-md {% if active == 'files' %}bg-indigo-600 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">Knowledge Files</a>
+      </nav>
+      <a href="/admin/logout" class="ml-auto text-sm text-slate-500 hover:text-slate-800">Log out</a>
+    </div>
+  </header>
+  {% endblock %}
+  <main class="max-w-5xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

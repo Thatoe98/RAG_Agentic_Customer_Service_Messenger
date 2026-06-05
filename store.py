@@ -8,7 +8,6 @@ class Conversation:
     messages: list = field(default_factory=list)
     escalated: bool = False
     escalation_msg_id: Optional[int] = None
-    drive_cache: dict = field(default_factory=dict)
     greeted: bool = False
     admin_silenced_at: Optional[float] = None
 
@@ -71,7 +70,6 @@ def clear_messages(psid: str):
     conv = get_or_create(psid)
     with _lock:
         conv.messages = []
-        conv.drive_cache = {}
 
 
 def mark_greeted(psid: str):
@@ -80,16 +78,6 @@ def mark_greeted(psid: str):
 
 def is_greeted(psid: str) -> bool:
     return get_or_create(psid).greeted
-
-
-def get_drive_cache(psid: str, query: str) -> Optional[str]:
-    return get_or_create(psid).drive_cache.get(query)
-
-
-def set_drive_cache(psid: str, query: str, result: str):
-    conv = get_or_create(psid)
-    with _lock:
-        conv.drive_cache[query] = result
 
 
 # ── Admin inbox takeover ─────────────────────────────────────────────────────

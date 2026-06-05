@@ -2,12 +2,45 @@
 
 ## Overview
 
-A Facebook Messenger bot for a business page that:
+A Facebook Messenger bot for **Cross Culture Education** (Myanmar → Thailand university consulting) that:
 - Answers customer inquiries professionally using Gemini AI
-- Reads company files from Google Drive when needed (products, pricing, policies)
+- Retrieves company knowledge via **local RAG** (semantic search over an embedded knowledge base) — no more live Google Drive reads
 - Escalates to a human supervisor via Telegram with full conversation context
 - Supervisor replies from Telegram are forwarded back to the customer on Messenger
 - Supervisor sends `/done` to hand the conversation back to the bot
+
+It also ships an **admin webapp** (same FastAPI process) for the business owner to:
+- **Train the bot via chat** — adjust tone/strategy/behavior in natural language; the trainer agent saves these as persistent *guidelines* injected into the customer bot's system prompt, and can test retrieval against the live knowledge base
+- **Manage knowledge files** — upload (PDF / DOCX / TXT / CSV / MD) and delete documents; uploads are chunked, embedded, and indexed for RAG
+
+---
+
+## Restructure Plan (in progress, 2026-06)
+
+Goal: stop burning tokens by dumping whole Drive docs into the model. Replace with RAG + an admin webapp for knowledge and behavior management.
+
+**Decisions locked in:**
+- **Embeddings:** Gemini `gemini-embedding-001` (768-dim, normalized). Cheap, strong Burmese/English cross-lingual, no local model to host.
+- **Vector store:** plain SQLite (`data/knowledge.db`) — embeddings stored as float32 BLOBs, retrieval by brute-force cosine in NumPy. Zero native extensions, cross-platform (Windows dev + Linux VPS). Swap to sqlite-vec/pgvector only if the corpus grows large.
+- **Admin frontend:** server-rendered Jinja2 + HTMX + Tailwind (CDN). No Node/build step.
+- **Auth:** single shared `ADMIN_PASSWORD`, signed session cookie (Starlette `SessionMiddleware`).
+- **Google Drive:** removed entirely. Knowledge now lives only in the RAG store.
+
+**Build order / checklist:**
+- [x] Plan + CLAUDE.md
+- [x] `config.py` — drop Drive vars; add `ADMIN_PASSWORD`, `SESSION_SECRET`, `EMBEDDING_MODEL`, `DB_PATH`
+- [x] `db.py` — SQLite connection + schema (`documents`, `chunks`, `guidelines`)
+- [x] `rag.py` — embed / chunk / ingest / search / document CRUD
+- [x] `guidelines.py` — guideline CRUD + compose customer system prompt
+- [x] `agent.py` — replace `search_drive` with `search_knowledge`; inject guidelines
+- [x] `admin/trainer_agent.py` — trainer chat agent (search + guideline tools)
+- [x] `admin/routes.py` — login, chat, files routers
+- [x] `templates/` — base, login, chat, files
+- [x] `main.py` — mount admin router + session middleware
+- [x] `requirements.txt`, `.env.example`, `.gitignore`
+- [x] Delete `tools/drive.py`
+- [x] `DEPLOY.md` — Hostinger KVM2 (systemd + nginx + certbot)
+- [x] Smoke-tested locally (RAG ingest/search incl. Burmese, admin auth, upload). **Still TODO:** deploy + register webhooks + real Messenger test, then upload the real knowledge docs via the admin UI.
 
 ---
 
@@ -16,13 +49,13 @@ A Facebook Messenger bot for a business page that:
 ### Completed
 - [x] Facebook Messenger webhook (receive messages, send replies, typing indicator)
 - [x] Gemini AI agent with tool use (agentic loop with safety cap)
-- [x] `search_drive` tool — searches and reads Google Drive docs/sheets
 - [x] `escalate_to_human` tool — triggers Telegram handover
 - [x] Telegram handover: supervisor notified with full transcript
 - [x] Bidirectional bridge: supervisor replies in Telegram → sent to customer on Messenger
 - [x] `/done` command in Telegram returns conversation to bot
 - [x] Thread-safe in-memory conversation store (per user PSID)
-- [x] Drive result caching per conversation session
+- [x] Local RAG knowledge base (SQLite + Gemini embeddings) with `search_knowledge` tool
+- [x] Admin webapp: training chat + knowledge-file manager
 - [x] Telegram message ID tracking for nested thread replies
 - [x] Facebook webhook signature verification (optional, via `FB_APP_SECRET`)
 - [x] Railway deployment config
@@ -41,18 +74,27 @@ A Facebook Messenger bot for a business page that:
 
 ```
 messenger_bot_with_claude/
-├── main.py                  # FastAPI app: Facebook + Telegram webhook endpoints
-├── agent.py                 # Gemini agentic loop with tool use
+├── main.py                  # FastAPI app: FB + Telegram webhooks, mounts admin router + session middleware
+├── agent.py                 # Customer-facing Gemini agent: search_knowledge + escalate_to_human
 ├── messenger.py             # Facebook Send API (send message, typing, get profile)
 ├── store.py                 # In-memory conversation state + Telegram↔PSID mapping
 ├── config.py                # Environment variable loading
+├── db.py                    # SQLite connection + schema bootstrap (documents, chunks, guidelines)
+├── rag.py                   # Embedding, chunking, ingest, semantic search, document CRUD
+├── guidelines.py            # Admin-trained behavior guidelines + customer system-prompt composition
+├── admin/
+│   ├── routes.py            # Admin webapp: login, training chat, file manager
+│   └── trainer_agent.py     # Trainer chat agent (RAG search + guideline edit tools)
 ├── tools/
-│   ├── drive.py             # Google Drive search & read (Docs, Sheets, plain text)
 │   └── handover.py          # Telegram notification and message forwarding
+├── templates/               # Jinja2 + HTMX admin UI (base, login, chat, files)
 ├── prompts/
-│   └── system_prompt.txt    # AI persona, tone, escalation rules — edit freely
+│   ├── system_prompt.txt    # Customer bot persona, tone, escalation rules
+│   └── trainer_prompt.txt   # Trainer agent persona (admin-facing)
+├── data/                    # SQLite knowledge.db lives here (gitignored)
 ├── requirements.txt
-├── railway.toml             # Railway deployment config
+├── railway.toml             # Railway deployment config (legacy)
+├── DEPLOY.md                # Hostinger KVM2 VPS deployment guide
 └── .env.example             # All required env vars with descriptions
 ```
 
@@ -67,8 +109,8 @@ Customer (Messenger)
    main.py (FastAPI)
         │
         ▼
-   agent.py (Gemini)
-    ├── search_drive(query)     → tools/drive.py → Google Drive API
+   agent.py (Gemini)   ← system prompt = base persona + admin guidelines (guidelines.py)
+    ├── search_knowledge(query) → rag.py → embed query → cosine over SQLite chunks → top-k text
     └── escalate_to_human(reason)
               │
               ▼
@@ -90,6 +132,41 @@ Supervisor sends /done
    Thread unlocked — bot resumes
 ```
 
+### Admin webapp (same FastAPI process, `/admin`)
+
+```
+Business owner (browser)
+        │  login (ADMIN_PASSWORD → signed session cookie)
+        ▼
+   admin/routes.py
+   ├── /admin/chat   ── trainer_agent.py (Gemini)
+   │                      ├── search_knowledge(query)        test what the bot can find
+   │                      ├── save_guideline / update / delete  edit persistent behavior
+   │                      └── list_guidelines
+   │                            │
+   │                            ▼  guidelines.py → SQLite `guidelines`
+   │                      (these guidelines are injected into the CUSTOMER bot's prompt)
+   │
+   └── /admin/files  ── upload → rag.ingest() → parse + chunk + embed → SQLite
+                        delete → rag.delete_document()
+```
+
+---
+
+## RAG Pipeline (`rag.py`)
+
+- **Embedding model:** `gemini-embedding-001`, `output_dimensionality=768`, L2-normalized. Query embeddings use `task_type=RETRIEVAL_QUERY`; document chunks use `RETRIEVAL_DOCUMENT`.
+- **Chunking:** ~1000 chars per chunk with ~150 char overlap, split on paragraph/sentence boundaries.
+- **Storage:** SQLite. `chunks.embedding` is a raw float32 BLOB (`numpy.tobytes()`). No vector extension.
+- **Search:** load all chunk vectors into a NumPy matrix, cosine similarity vs. the query vector, return top-k chunk texts with their source filename. Fast for thousands of chunks; revisit if the corpus reaches tens of thousands.
+- **Parsers:** PDF (`pypdf`), DOCX (`python-docx`), TXT/MD/CSV (decoded text).
+- **Cache:** the in-memory vector matrix is cached and invalidated on any ingest/delete so search stays cheap.
+
+## Behavior Training (`guidelines.py`)
+
+- The customer bot's `system_instruction` = `prompts/system_prompt.txt` (base persona) **+** a dynamically rendered `## Learned Guidelines` block listing every active guideline from the DB.
+- The trainer chat agent edits these guidelines through tool calls, so the owner "trains" the bot conversationally (e.g. "always mention the free consultation", "be more concise with parents"). Changes take effect on the customer bot's next message — no redeploy.
+
 ---
 
 ## Environment Variables
@@ -102,10 +179,14 @@ Copy `.env.example` to `.env` and fill in all values.
 | `FB_VERIFY_TOKEN` | Any random string you choose — used once during webhook setup |
 | `FB_APP_SECRET` | Optional but recommended — enables webhook signature verification |
 | `GEMINI_API_KEY` | From [Google AI Studio](https://aistudio.google.com) |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Path to service account `.json` file, or the raw JSON as a string |
-| `GOOGLE_DRIVE_FOLDER_ID` | Optional — restrict Drive search to a specific shared folder |
 | `TELEGRAM_BOT_TOKEN` | From Telegram `@BotFather` — `/newbot` |
 | `TELEGRAM_SUPERVISOR_CHAT_ID` | Your personal chat ID or a group ID (use `@userinfobot` to find it) |
+| `ADMIN_PASSWORD` | Password for the `/admin` webapp login |
+| `SESSION_SECRET` | Random string used to sign admin session cookies |
+| `EMBEDDING_MODEL` | Optional — defaults to `gemini-embedding-001` |
+| `DB_PATH` | Optional — defaults to `data/knowledge.db` |
+
+> Google Drive variables (`GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DRIVE_FOLDER_ID`) are **no longer used** — knowledge is managed through the admin webapp.
 
 ---
 

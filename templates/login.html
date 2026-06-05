@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Log in{% endblock %}
+{% block nav %}{% endblock %}
+{% block content %}
+<div class="min-h-[70vh] flex items-center justify-center">
+  <form method="post" action="/admin/login"
+        class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 w-full max-w-sm">
+    <h1 class="text-lg font-semibold text-slate-900 mb-1">CCE Bot Admin</h1>
+    <p class="text-sm text-slate-500 mb-6">Enter the admin password to continue.</p>
+    {% if error %}
+    <div class="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">{{ error }}</div>
+    {% endif %}
+    <input type="password" name="password" autofocus required placeholder="Password"
+           class="w-full border border-slate-300 rounded-md px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    <button type="submit"
+            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-md py-2 font-medium">Log in</button>
+  </form>
+</div>
+{% endblock %}

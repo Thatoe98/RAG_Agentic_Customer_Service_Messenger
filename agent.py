@@ -1,36 +1,36 @@
 import asyncio
 import logging
-from pathlib import Path
 
 from google import genai
 from google.genai import types
 
+import rag
 import store
 from config import GEMINI_API_KEY, GEMINI_MODEL
+from guidelines import compose_system_prompt
 from messenger import get_user_profile
-from tools import drive
 from tools.handover import forward_customer_message, notify_supervisor
 
 log = logging.getLogger(__name__)
 
 _client = genai.Client(api_key=GEMINI_API_KEY)
-_SYSTEM_PROMPT = Path("prompts/system_prompt.txt").read_text(encoding="utf-8")
 
 _TOOLS = types.Tool(
     function_declarations=[
         types.FunctionDeclaration(
-            name="search_drive",
+            name="search_knowledge",
             description=(
-                "Search company Google Drive documents for product info, pricing, "
-                "policies, or structured data relevant to the customer's question. "
-                "Call this only when the answer is not already known."
+                "Semantically search the company knowledge base (uploaded documents about "
+                "universities, programs, tuition, intake dates, required documents, policies) "
+                "for information relevant to the customer's question. Call this whenever the "
+                "answer depends on specific company/university facts you don't already know."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Keywords to search for in company documents",
+                        "description": "A natural-language description of what to look up",
                     }
                 },
                 "required": ["query"],
@@ -57,10 +57,12 @@ _TOOLS = types.Tool(
     ]
 )
 
-_GEN_CONFIG = types.GenerateContentConfig(
-    system_instruction=_SYSTEM_PROMPT,
-    tools=[_TOOLS],
-)
+def _gen_config() -> types.GenerateContentConfig:
+    # Rebuilt per request so admin-trained guidelines take effect immediately.
+    return types.GenerateContentConfig(
+        system_instruction=compose_system_prompt(),
+        tools=[_TOOLS],
+    )
 
 
 async def handle_message(psid: str, user_text: str) -> str | None:
@@ -81,6 +83,7 @@ async def handle_message(psid: str, user_text: str) -> str | None:
 
     store.add_message(psid, "user", user_text)
     contents = _build_contents(store.get_messages(psid))
+    cfg = _gen_config()
 
     # Force escalation if customer explicitly asks for a human — don't trust the model for this
     if _customer_wants_human(user_text):
@@ -90,7 +93,7 @@ async def handle_message(psid: str, user_text: str) -> str | None:
             types.Content(role="model", parts=[types.Part(function_call=types.FunctionCall(name="escalate_to_human", args={"reason": "Customer explicitly requested to speak with a human"}))]),
             types.Content(role="user", parts=[types.Part(function_response=types.FunctionResponse(name="escalate_to_human", response={"result": "Supervisor has been notified via Telegram."}))]),
         ]
-        ack = await _client.aio.models.generate_content(model=GEMINI_MODEL, contents=ack_contents, config=_GEN_CONFIG)
+        ack = await _client.aio.models.generate_content(model=GEMINI_MODEL, contents=ack_contents, config=cfg)
         text = "".join(p.text for p in ack.candidates[0].content.parts if getattr(p, "text", None))
         store.add_message(psid, "assistant", text)
         return text
@@ -99,7 +102,7 @@ async def handle_message(psid: str, user_text: str) -> str | None:
         response = await _client.aio.models.generate_content(
             model=GEMINI_MODEL,
             contents=contents,
-            config=_GEN_CONFIG,
+            config=cfg,
         )
 
         parts = response.candidates[0].content.parts
@@ -140,8 +143,8 @@ async def handle_message(psid: str, user_text: str) -> str | None:
 
 
 async def _execute_tool(psid: str, name: str, args: dict) -> str:
-    if name == "search_drive":
-        return await _drive_lookup(psid, args["query"])
+    if name == "search_knowledge":
+        return await asyncio.to_thread(rag.search_as_context, args["query"])
 
     if name == "escalate_to_human":
         reason = args["reason"]
@@ -181,15 +184,6 @@ async def _summarize_conversation(messages: list[dict]) -> str:
         contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
     )
     return response.candidates[0].content.parts[0].text
-
-
-async def _drive_lookup(psid: str, query: str) -> str:
-    cached = store.get_drive_cache(psid, query)
-    if cached:
-        return cached
-    result = await asyncio.to_thread(drive.search_and_read, query)
-    store.set_drive_cache(psid, query, result)
-    return result
 
 
 def _build_contents(messages: list[dict]) -> list[types.Content]:

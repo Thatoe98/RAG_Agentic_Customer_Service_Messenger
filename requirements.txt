@@ -2,6 +2,10 @@ fastapi
 uvicorn[standard]
 google-genai
 httpx
-google-api-python-client
-google-auth
 python-dotenv
+python-multipart
+itsdangerous
+jinja2
+numpy
+pypdf
+python-docx

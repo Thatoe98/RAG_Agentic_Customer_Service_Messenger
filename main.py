@@ -5,17 +5,31 @@ import logging
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse
+from starlette.middleware.sessions import SessionMiddleware
 
+import db
 import messenger
 import store
+from admin.routes import router as admin_router
 from agent import handle_message
-from config import ADMIN_SILENCE_TIMEOUT, FB_APP_SECRET, FB_VERIFY_TOKEN, GREETING_MESSAGE
+from config import (
+    ADMIN_SILENCE_TIMEOUT,
+    FB_APP_SECRET,
+    FB_VERIFY_TOKEN,
+    GREETING_MESSAGE,
+    SESSION_SECRET,
+)
 from tools.handover import notify_supervisor
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, max_age=60 * 60 * 24 * 7)
+app.include_router(admin_router)
+
+# Initialize the SQLite knowledge base on startup.
+db.get_conn()
 
 
 # ── Facebook webhook ────────────────────────────────────────────────────────
