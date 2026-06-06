@@ -11,6 +11,4 @@ data/
 *.db-wal
 *.db-shm
 
-# Local deploy / SSH scripts — contain server credentials, never commit
-_deploy.py
-_ssh_*.py
+# _redeploy.py and _ssh_*.py are safe to commit — credentials come from .env
