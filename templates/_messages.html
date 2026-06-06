@@ -1,0 +1,20 @@
+{% if not messages %}
+<p class="text-slate-400 text-sm text-center py-10">No messages yet.</p>
+{% endif %}
+{% for m in messages %}
+<div class="flex {% if m.role == 'user' %}justify-end{% else %}justify-start{% endif %}">
+  <div class="max-w-[78%] px-3.5 py-2 rounded-2xl text-sm leading-relaxed
+    {% if m.role == 'user' %}bg-blue-500 text-white rounded-br-sm{% else %}bg-slate-100 text-slate-800 rounded-bl-sm{% endif %}">
+    {% if '[Supervisor]' in m.content %}
+    <div class="text-xs opacity-60 mb-0.5 font-medium">Supervisor</div>
+    <div>{{ m.content[13:] }}</div>
+    {% elif '[Admin]' in m.content %}
+    <div class="text-xs opacity-60 mb-0.5 font-medium">Admin (you)</div>
+    <div>{{ m.content[8:] }}</div>
+    {% else %}
+    <div class="whitespace-pre-wrap">{{ m.content }}</div>
+    {% endif %}
+    <div class="text-xs opacity-40 mt-1">{{ m.ts_str }}</div>
+  </div>
+</div>
+{% endfor %}

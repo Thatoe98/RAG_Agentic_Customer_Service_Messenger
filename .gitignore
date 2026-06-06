@@ -10,3 +10,7 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# Local deploy / SSH scripts — contain server credentials, never commit
+_deploy.py
+_ssh_*.py

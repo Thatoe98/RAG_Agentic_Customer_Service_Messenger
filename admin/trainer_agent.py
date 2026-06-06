@@ -14,6 +14,7 @@ from google.genai import types
 
 import guidelines
 import rag
+import usage_log
 from config import GEMINI_API_KEY, GEMINI_MODEL
 
 log = logging.getLogger(__name__)
@@ -97,6 +98,7 @@ async def chat(history: list[dict], user_text: str) -> str:
         response = await _client.aio.models.generate_content(
             model=GEMINI_MODEL, contents=contents, config=_GEN_CONFIG
         )
+        usage_log.log_response(response, source="trainer", model=GEMINI_MODEL)
         parts = response.candidates[0].content.parts
         function_calls = [p for p in parts if p.function_call is not None]
 

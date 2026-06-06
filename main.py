@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from starlette.middleware.sessions import SessionMiddleware
 
+import conversations as convdb
 import db
 import messenger
 import store
@@ -86,18 +87,45 @@ async def fb_webhook(request: Request):
     return {"status": "ok"}
 
 
+async def _ensure_user(psid: str):
+    """Fetch Facebook profile on first contact or when name is still unknown."""
+    user = convdb.get_user(psid)
+    name_unknown = user is None or (user.get("name") or psid) == psid
+    if name_unknown:
+        profile = await messenger.get_user_profile(psid)
+        convdb.upsert_user(
+            psid,
+            first_name=profile.get("first_name", ""),
+            last_name=profile.get("last_name", ""),
+            profile_pic=profile.get("profile_pic", ""),
+        )
+    else:
+        convdb.touch_user(psid)
+
+
 async def _process(psid: str, text: str):
     try:
-        if store.is_admin_silenced(psid, ADMIN_SILENCE_TIMEOUT) and not store.is_escalated(psid):
-            log.info("Bot silenced by admin for %s; ignoring message", psid)
+        await _ensure_user(psid)
+        convdb.persist_message(psid, "user", text)
+
+        if not convdb.get_bot_enabled(psid):
+            log.info("Bot disabled for %s via admin panel toggle", psid)
             return
+
+        if store.is_admin_silenced(psid, ADMIN_SILENCE_TIMEOUT) and not store.is_escalated(psid):
+            log.info("Bot silenced by admin inbox takeover for %s; ignoring message", psid)
+            return
+
         await messenger.send_typing(psid)
         if not store.is_greeted(psid):
             store.mark_greeted(psid)
             await messenger.send_message(psid, GREETING_MESSAGE)
+            convdb.persist_message(psid, "assistant", GREETING_MESSAGE)
+
         reply = await handle_message(psid, text)
         if reply:
             await messenger.send_message(psid, reply)
+            convdb.persist_message(psid, "assistant", reply)
     except Exception:
         log.exception("Error processing message from %s", psid)
         await messenger.send_message(
@@ -134,21 +162,24 @@ async def telegram_webhook(request: Request):
     # /reset — clear escalation silently (no message sent to customer)
     if text.lower().startswith("/reset"):
         store.reset_escalation(psid)
+        convdb.set_bot_enabled(psid, True)
         return {"ok": True}
 
     # /done — hand conversation back to bot
     if text.lower().startswith("/done"):
         store.reset_escalation(psid)
         store.clear_messages(psid)
-        await messenger.send_message(
-            psid,
-            "Our team has finished assisting you. Is there anything else I can help you with?",
-        )
+        convdb.set_bot_enabled(psid, True)
+        done_msg = "Our team has finished assisting you. Is there anything else I can help you with?"
+        await messenger.send_message(psid, done_msg)
+        convdb.persist_message(psid, "assistant", done_msg)
         return {"ok": True}
 
     # Forward supervisor reply to the customer on Messenger
     if text:
-        store.add_message(psid, "assistant", f"[Supervisor] {text}")
+        tagged = f"[Supervisor] {text}"
+        store.add_message(psid, "assistant", tagged)
+        convdb.persist_message(psid, "assistant", tagged)
         # Register this message ID so further thread replies also resolve
         store.register_telegram_msg(psid, msg_id)
         await messenger.send_message(psid, text)

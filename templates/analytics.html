@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold text-slate-900 mb-6">Analytics</h1>
+
+<!-- Stat cards -->
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+  <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div class="text-2xl font-bold text-indigo-600">{{ stats.total_users }}</div>
+    <div class="text-xs text-slate-500 mt-1">Total Customers</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div class="text-2xl font-bold text-slate-700">{{ stats.total_messages }}</div>
+    <div class="text-xs text-slate-500 mt-1">Total Messages</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div class="text-2xl font-bold text-green-600">{{ stats.active_today }}</div>
+    <div class="text-xs text-slate-500 mt-1">Active Today</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div class="text-2xl font-bold text-blue-600">{{ stats.active_week }}</div>
+    <div class="text-xs text-slate-500 mt-1">Active This Week</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div class="text-2xl font-bold text-orange-500">{{ stats.escalated_count }}</div>
+    <div class="text-xs text-slate-500 mt-1">Escalated</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div class="text-2xl font-bold text-red-500">{{ stats.bot_off_count }}</div>
+    <div class="text-xs text-slate-500 mt-1">Manual Mode</div>
+  </div>
+</div>
+
+<!-- Charts row -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+
+  <!-- Message breakdown -->
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+    <h2 class="text-sm font-semibold text-slate-700 mb-4">Message Breakdown</h2>
+    {% set total = stats.user_messages + stats.bot_messages %}
+    {% if total > 0 %}
+    <div class="space-y-3 text-sm">
+      <div class="flex items-center gap-3">
+        <span class="w-20 text-slate-500 shrink-0">Customer</span>
+        <div class="flex-1 bg-slate-100 rounded-full h-2.5">
+          <div class="bg-blue-500 h-2.5 rounded-full" style="width:{{ (stats.user_messages / total * 100)|int }}%"></div>
+        </div>
+        <span class="w-10 text-right text-slate-600 shrink-0">{{ stats.user_messages }}</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="w-20 text-slate-500 shrink-0">Bot</span>
+        <div class="flex-1 bg-slate-100 rounded-full h-2.5">
+          <div class="bg-indigo-500 h-2.5 rounded-full" style="width:{{ (stats.bot_messages / total * 100)|int }}%"></div>
+        </div>
+        <span class="w-10 text-right text-slate-600 shrink-0">{{ stats.bot_messages }}</span>
+      </div>
+    </div>
+    {% else %}
+    <p class="text-slate-400 text-sm">No messages yet.</p>
+    {% endif %}
+  </div>
+
+  <!-- Daily bar chart -->
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+    <h2 class="text-sm font-semibold text-slate-700 mb-4">Messages — Last 7 Days</h2>
+    {% if stats.daily_messages %}
+    {% set max_count = stats.daily_messages|map(attribute='count')|max %}
+    <div class="flex items-end gap-2" style="height:80px">
+      {% for d in stats.daily_messages %}
+      {% set bar_h = ((d.count / max_count) * 72)|int if max_count > 0 else 0 %}
+      <div class="flex-1 flex flex-col items-center justify-end gap-1">
+        <span class="text-xs text-slate-400">{{ d.count }}</span>
+        <div class="w-full bg-indigo-400 rounded-t-sm" style="height:{{ bar_h if bar_h > 2 else 2 }}px"></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="flex gap-2 mt-1">
+      {% for d in stats.daily_messages %}
+      <div class="flex-1 text-center text-xs text-slate-400">{{ d.day[5:] }}</div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-slate-400 text-sm">No data for the last 7 days.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Token usage -->
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-6">
+  <h2 class="text-sm font-semibold text-slate-700 mb-4">AI Token Usage</h2>
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+    <div>
+      <div class="text-xl font-bold text-indigo-600">{{ "{:,}".format(tokens.today.total) }}</div>
+      <div class="text-xs text-slate-500">Tokens today</div>
+      <div class="text-xs text-slate-400">${{ tokens.today.cost }}</div>
+    </div>
+    <div>
+      <div class="text-xl font-bold text-slate-700">{{ "{:,}".format(tokens.week.total) }}</div>
+      <div class="text-xs text-slate-500">Tokens this week</div>
+      <div class="text-xs text-slate-400">${{ tokens.week.cost }}</div>
+    </div>
+    <div>
+      <div class="text-xl font-bold text-green-600">{{ "{:,}".format(tokens.today.input) }}</div>
+      <div class="text-xs text-slate-500">Input today</div>
+    </div>
+    <div>
+      <div class="text-xl font-bold text-orange-500">{{ "{:,}".format(tokens.today.output) }}</div>
+      <div class="text-xs text-slate-500">Output today</div>
+    </div>
+  </div>
+
+  {% if tokens.by_source %}
+  <table class="w-full text-xs text-slate-600">
+    <thead>
+      <tr class="text-left text-slate-400 border-b border-slate-100">
+        <th class="pb-1 font-medium">Source (7 days)</th>
+        <th class="pb-1 font-medium text-right">Calls</th>
+        <th class="pb-1 font-medium text-right">Input</th>
+        <th class="pb-1 font-medium text-right">Output</th>
+        <th class="pb-1 font-medium text-right">Cost</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-50">
+      {% for r in tokens.by_source %}
+      <tr>
+        <td class="py-1 capitalize">{{ r.source }}</td>
+        <td class="py-1 text-right">{{ r.calls }}</td>
+        <td class="py-1 text-right">{{ "{:,}".format(r.input) }}</td>
+        <td class="py-1 text-right">{{ "{:,}".format(r.output) }}</td>
+        <td class="py-1 text-right">${{ r.cost }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-slate-400 text-xs">No token data yet — will populate as messages are processed.</p>
+  {% endif %}
+</div>
+
+<!-- Recent customer messages -->
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+  <h2 class="text-sm font-semibold text-slate-700 mb-3">Recent Customer Messages</h2>
+  {% if stats.recent_user_messages %}
+  <ul class="divide-y divide-slate-50 text-sm text-slate-600">
+    {% for msg in stats.recent_user_messages[:25] %}
+    <li class="py-1.5 truncate">{{ msg[:130] }}{% if msg|length > 130 %}…{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-slate-400 text-sm">No customer messages yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -38,6 +38,46 @@ CREATE TABLE IF NOT EXISTS guidelines (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    psid        TEXT PRIMARY KEY,
+    name        TEXT NOT NULL DEFAULT '',
+    first_name  TEXT NOT NULL DEFAULT '',
+    last_name   TEXT NOT NULL DEFAULT '',
+    profile_pic TEXT NOT NULL DEFAULT '',
+    first_seen  TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen   TEXT NOT NULL DEFAULT (datetime('now')),
+    bot_enabled INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    psid    TEXT NOT NULL,
+    role    TEXT NOT NULL,
+    content TEXT NOT NULL,
+    ts      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (psid) REFERENCES users(psid)
+);
+CREATE INDEX IF NOT EXISTS idx_messages_psid ON messages(psid);
+CREATE INDEX IF NOT EXISTS idx_messages_ts   ON messages(ts);
+
+CREATE TABLE IF NOT EXISTS token_usage (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            TEXT NOT NULL DEFAULT (datetime('now')),
+    source        TEXT NOT NULL,
+    psid          TEXT,
+    model         TEXT NOT NULL,
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_token_usage_ts ON token_usage(ts);
+
+CREATE TABLE IF NOT EXISTS recommendations (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      TEXT NOT NULL DEFAULT (datetime('now')),
+    content TEXT NOT NULL
+);
 """
 
 

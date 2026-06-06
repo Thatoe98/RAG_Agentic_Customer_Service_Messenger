@@ -10,19 +10,25 @@
 <body class="bg-slate-100 text-slate-800 min-h-screen">
   {% block nav %}
   <header class="bg-white border-b border-slate-200">
-    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center gap-6">
-      <span class="font-semibold text-slate-900">CCE Bot Admin</span>
-      <nav class="flex gap-1 text-sm">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center gap-4">
+      <span class="font-semibold text-slate-900 shrink-0">CCE Bot Admin</span>
+      <nav class="flex gap-1 text-sm flex-wrap">
         <a href="/admin/chat"
            class="px-3 py-1.5 rounded-md {% if active == 'chat' %}bg-indigo-600 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">Training Chat</a>
         <a href="/admin/files"
            class="px-3 py-1.5 rounded-md {% if active == 'files' %}bg-indigo-600 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">Knowledge Files</a>
+        <a href="/admin/conversations"
+           class="px-3 py-1.5 rounded-md {% if active == 'conversations' %}bg-indigo-600 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">Conversations</a>
+        <a href="/admin/analytics"
+           class="px-3 py-1.5 rounded-md {% if active == 'analytics' %}bg-indigo-600 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">Analytics</a>
+        <a href="/admin/recommendations"
+           class="px-3 py-1.5 rounded-md {% if active == 'recommendations' %}bg-indigo-600 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">Recommendations</a>
       </nav>
-      <a href="/admin/logout" class="ml-auto text-sm text-slate-500 hover:text-slate-800">Log out</a>
+      <a href="/admin/logout" class="ml-auto text-sm text-slate-500 hover:text-slate-800 shrink-0">Log out</a>
     </div>
   </header>
   {% endblock %}
-  <main class="max-w-5xl mx-auto px-4 py-6">
+  <main class="max-w-6xl mx-auto px-4 py-6">
     {% block content %}{% endblock %}
   </main>
 </body>

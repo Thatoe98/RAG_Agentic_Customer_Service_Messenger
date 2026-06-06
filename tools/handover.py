@@ -11,6 +11,15 @@ def _md(text: str) -> str:
     return text
 
 
+_TG_LIMIT = 4096
+
+def _display_name(user_name: str, psid: str) -> str:
+    """Return a friendly name — fall back to 'Customer' if only a PSID is available."""
+    if user_name and user_name != psid and not user_name.isdigit():
+        return user_name
+    return "Customer"
+
+
 async def notify_supervisor(
     psid: str,
     user_name: str,
@@ -21,15 +30,21 @@ async def notify_supervisor(
     Send escalation notice to the supervisor on Telegram.
     Returns the Telegram message_id of the notice (used to map replies back to PSID).
     """
-    text = (
-        f"🔔 *Handover Request*\n\n"
-        f"*Customer:* {_md(user_name)}\n"
-        f"*Reason:* {_md(reason)}\n\n"
-        f"*Conversation summary:*\n{_md(summary)}\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"↩ *Reply to this message* to send a message to the customer.\n"
-        f"Send /done as a reply when finished — the bot will resume."
+    name = _display_name(user_name, psid)
+    header = (
+        f"🔔 *{_md(name)}* human နဲ့ ပြောချင်တယ်\n"
+        f"📌 {_md(reason)}\n\n"
+        f"💬 *Conversation:*\n"
     )
+    footer = (
+        "\n─────────────────────\n"
+        "↩ Reply လုပ်ပြီး customer ဆီ message ပို့နိုင်တယ်\n"
+        "/done ရိုက်ရင် bot ပြန်ယူမယ်"
+    )
+    # Fit summary within Telegram's 4096-char limit
+    max_summary = _TG_LIMIT - len(header) - len(footer) - 50
+    trimmed = summary if len(summary) <= max_summary else summary[-max_summary:].lstrip()
+    text = header + _md(trimmed) + footer
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -58,11 +73,12 @@ async def forward_customer_message(
             f"{_TG}/sendChatAction",
             json={"chat_id": TELEGRAM_SUPERVISOR_CHAT_ID, "action": "typing"},
         )
+        name = _display_name(user_name, user_name)
         resp = await client.post(
             f"{_TG}/sendMessage",
             json={
                 "chat_id": TELEGRAM_SUPERVISOR_CHAT_ID,
-                "text": f"💬 *{_md(user_name)}:* {_md(text)}",
+                "text": f"👤 *{_md(name)}:* {_md(text)}",
                 "parse_mode": "Markdown",
                 "reply_to_message_id": escalation_msg_id,
             },

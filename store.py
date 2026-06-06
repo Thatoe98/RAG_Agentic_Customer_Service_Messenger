@@ -119,3 +119,10 @@ def refresh_admin_silence(psid: str):
     with _lock:
         if conv.admin_silenced_at is not None:
             conv.admin_silenced_at = time.time()
+
+
+def clear_admin_silence(psid: str):
+    """Clear inbox-takeover silence so the bot resumes immediately."""
+    conv = get_or_create(psid)
+    with _lock:
+        conv.admin_silenced_at = None

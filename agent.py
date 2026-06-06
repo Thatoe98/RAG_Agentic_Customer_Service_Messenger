@@ -4,8 +4,10 @@ import logging
 from google import genai
 from google.genai import types
 
+import conversations as convdb
 import rag
 import store
+import usage_log
 from config import GEMINI_API_KEY, GEMINI_MODEL
 from guidelines import compose_system_prompt
 from messenger import get_user_profile
@@ -15,53 +17,54 @@ log = logging.getLogger(__name__)
 
 _client = genai.Client(api_key=GEMINI_API_KEY)
 
-_TOOLS = types.Tool(
-    function_declarations=[
-        types.FunctionDeclaration(
-            name="search_knowledge",
-            description=(
-                "Semantically search the company knowledge base (uploaded documents about "
-                "universities, programs, tuition, intake dates, required documents, policies) "
-                "for information relevant to the customer's question. Call this whenever the "
-                "answer depends on specific company/university facts you don't already know."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "A natural-language description of what to look up",
-                    }
-                },
-                "required": ["query"],
-            },
-        ),
-        types.FunctionDeclaration(
-            name="escalate_to_human",
-            description=(
-                "Hand the conversation over to a human supervisor. Use when the customer "
-                "asks for a human, the issue is complex or sensitive, the customer is "
-                "frustrated, or you cannot resolve the matter."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "reason": {
-                        "type": "string",
-                        "description": "Short reason for escalation shown to the supervisor",
-                    }
-                },
-                "required": ["reason"],
-            },
-        ),
-    ]
+_SEARCH_DECL = types.FunctionDeclaration(
+    name="search_knowledge",
+    description=(
+        "Search uploaded company documents for specific facts: tuition, intake dates, "
+        "program availability, required documents, campus details, or university policies. "
+        "Only call this for document-dependent questions, not general ones."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "A natural-language description of what to look up",
+            }
+        },
+        "required": ["query"],
+    },
 )
 
+_ESCALATE_DECL = types.FunctionDeclaration(
+    name="escalate_to_human",
+    description=(
+        "Hand the conversation over to a human supervisor. Use when the customer "
+        "asks for a human, the issue is complex or sensitive, the customer is "
+        "frustrated, or you cannot resolve the matter."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": "Short reason for escalation shown to the supervisor",
+            }
+        },
+        "required": ["reason"],
+    },
+)
+
+_TOOLS_WITH_SEARCH = types.Tool(function_declarations=[_SEARCH_DECL, _ESCALATE_DECL])
+_TOOLS_ESCALATE_ONLY = types.Tool(function_declarations=[_ESCALATE_DECL])
+
 def _gen_config() -> types.GenerateContentConfig:
-    # Rebuilt per request so admin-trained guidelines take effect immediately.
+    # Only offer search_knowledge when documents are actually in the knowledge base.
+    # With an empty KB the model would call it, get nothing, and waste a loop iteration.
+    has_docs = bool(rag.list_documents())
     return types.GenerateContentConfig(
         system_instruction=compose_system_prompt(),
-        tools=[_TOOLS],
+        tools=[_TOOLS_WITH_SEARCH if has_docs else _TOOLS_ESCALATE_ONLY],
     )
 
 
@@ -94,6 +97,7 @@ async def handle_message(psid: str, user_text: str) -> str | None:
             types.Content(role="user", parts=[types.Part(function_response=types.FunctionResponse(name="escalate_to_human", response={"result": "Supervisor has been notified via Telegram."}))]),
         ]
         ack = await _client.aio.models.generate_content(model=GEMINI_MODEL, contents=ack_contents, config=cfg)
+        usage_log.log_response(ack, source="agent", model=GEMINI_MODEL, psid=psid)
         text = "".join(p.text for p in ack.candidates[0].content.parts if getattr(p, "text", None))
         store.add_message(psid, "assistant", text)
         return text
@@ -104,6 +108,7 @@ async def handle_message(psid: str, user_text: str) -> str | None:
             contents=contents,
             config=cfg,
         )
+        usage_log.log_response(response, source="agent", model=GEMINI_MODEL, psid=psid)
 
         parts = response.candidates[0].content.parts
         function_calls = [p for p in parts if p.function_call is not None]
@@ -151,7 +156,7 @@ async def _execute_tool(psid: str, name: str, args: dict) -> str:
         user_profile = await get_user_profile(psid)
         user_name = _display_name(user_profile, psid)
         log.info("Escalating %s to Telegram. Reason: %s", psid, reason)
-        summary = await _summarize_conversation(store.get_messages(psid))
+        summary = _format_for_supervisor(store.get_messages(psid))
         try:
             tg_msg_id = await notify_supervisor(
                 psid=psid,
@@ -163,32 +168,27 @@ async def _execute_tool(psid: str, name: str, args: dict) -> str:
             log.exception("Failed to send Telegram notification for %s", psid)
             return "Failed to notify supervisor — Telegram error."
         store.set_escalated(psid, tg_msg_id)
+        convdb.set_bot_enabled(psid, False)
         log.info("Escalation complete. Telegram msg_id=%s", tg_msg_id)
         return "Supervisor has been notified via Telegram."
 
     return f"Unknown tool: {name}"
 
 
-async def _summarize_conversation(messages: list[dict]) -> str:
-    transcript = "\n".join(
-        f"{'Customer' if m['role'] == 'user' else 'Bot'}: {m['content']}"
-        for m in messages
-    )
-    prompt = (
-        "Summarize this customer support conversation in 3-5 concise English bullet points "
-        "for a supervisor who is taking over. Cover: what the customer wants, key details they shared, "
-        "and why this is being escalated.\n\n" + transcript
-    )
-    response = await _client.aio.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
-    )
-    return response.candidates[0].content.parts[0].text
+def _format_for_supervisor(messages: list[dict]) -> str:
+    """Last 8 messages formatted as a short transcript for the Telegram notice."""
+    lines = []
+    for m in messages[-8:]:
+        prefix = "👤" if m["role"] == "user" else "🤖"
+        lines.append(f"{prefix} {m['content']}")
+    return "\n".join(lines)
 
+
+_HISTORY_CAP = 20  # messages sent to the model per request
 
 def _build_contents(messages: list[dict]) -> list[types.Content]:
     contents = []
-    for m in messages:
+    for m in messages[-_HISTORY_CAP:]:
         role = "model" if m["role"] == "assistant" else "user"
         contents.append(
             types.Content(role=role, parts=[types.Part(text=m["content"])])
@@ -223,14 +223,12 @@ def _customer_wants_human(text: str) -> bool:
 
 
 _ESCALATION_PHRASES = [
-    "connecting you with",
-    "connecting you to",
-    "team member",
+    "connecting you with a human",
+    "connecting you to a human",
+    "transferring you to",
+    "transfer you to a human",
     "human agent",
-    "speak with a person",
-    "speak to a person",
-    "transfer you",
-    "escalat",
+    "live agent",
 ]
 
 

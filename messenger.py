@@ -39,7 +39,7 @@ async def get_user_profile(psid: str) -> dict:
         resp = await client.get(
             f"{_BASE}/{psid}",
             params={
-                "fields": "first_name,last_name",
+                "fields": "first_name,last_name,profile_pic",
                 "access_token": FB_PAGE_ACCESS_TOKEN,
             },
         )
