@@ -12,3 +12,7 @@ data/
 *.db-shm
 
 # _redeploy.py and _ssh_*.py are safe to commit — credentials come from .env
+
+# Internal project notes (not for public repo)
+PROJECT_INTERNALS.md
+INSTRUCTIONS.md
