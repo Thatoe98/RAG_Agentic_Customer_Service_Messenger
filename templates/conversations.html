@@ -1,9 +1,25 @@
 {% extends "base.html" %}
 {% block title %}Conversations{% endblock %}
 {% block content %}
-<div class="mb-5 flex items-center justify-between">
+<div class="mb-5 flex items-center justify-between gap-3 flex-wrap">
   <h1 class="text-xl font-semibold text-slate-900">Conversations</h1>
-  <span class="text-sm text-slate-400">{{ users|length }} customer{{ 's' if users|length != 1 }}</span>
+  <div class="flex items-center gap-3">
+    {% if request.query_params.get('refreshed') is not none %}
+    <span class="text-xs text-slate-500">
+      {% set r = request.query_params.get('refreshed')|int %}
+      {% set t = request.query_params.get('total')|int %}
+      {% if r > 0 %}✓ Resolved {{ r }} of {{ t }} unknown name{{ 's' if t != 1 }}{% else %}No names resolved — Facebook app may still be in <strong>Development mode</strong>. Make it Live in the Meta Developer Portal.{% endif %}
+    </span>
+    {% endif %}
+    <form method="post" action="/admin/conversations/refresh-all-profiles"
+          onsubmit="return confirm('Try to fetch real names for all customers showing as IDs?\n\nThis calls the Facebook API. Requires your app to be Live in the Meta Developer Portal.')">
+      <button type="submit"
+              class="text-xs px-3 py-1.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors">
+        ↻ Refresh All Names
+      </button>
+    </form>
+    <span class="text-sm text-slate-400">{{ users|length }} customer{{ 's' if users|length != 1 }}</span>
+  </div>
 </div>
 
 {% if not users %}

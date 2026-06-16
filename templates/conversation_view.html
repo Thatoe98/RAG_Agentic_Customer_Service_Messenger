@@ -15,7 +15,15 @@
     </div>
     {% endif %}
     <div class="min-w-0">
-      <div class="font-semibold text-slate-800 truncate">{{ user.name or user.psid }}</div>
+      <div class="flex items-center gap-2">
+        <div class="font-semibold text-slate-800 truncate">{{ user.name or user.psid }}</div>
+        {% if not user.name or user.name == user.psid %}
+        <form method="post" action="/admin/conversations/{{ user.psid }}/refresh-profile" class="shrink-0">
+          <button type="submit" title="Fetch real name from Facebook"
+                  class="text-xs text-slate-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50 transition-colors">↻ Refresh</button>
+        </form>
+        {% endif %}
+      </div>
       <div class="text-xs text-slate-400">First seen {{ user.first_seen[:10] }} · {{ messages|length }} messages</div>
     </div>
   </div>
@@ -35,6 +43,24 @@
       Bot Off — Enable
     </button>
     {% endif %}
+  </form>
+
+  <!-- Clear memory -->
+  <form method="post" action="/admin/conversations/{{ user.psid }}/clear-memory" class="shrink-0"
+        onsubmit="return confirm('Clear AI memory for this conversation?\n\nThe chat history stays visible but the bot will start with a blank context on the next message.')">
+    <button type="submit"
+            class="px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700 transition-colors">
+      Clear Memory
+    </button>
+  </form>
+
+  <!-- Clear chat + memory -->
+  <form method="post" action="/admin/conversations/{{ user.psid }}/clear-all" class="shrink-0"
+        onsubmit="return confirm('Delete ALL messages and clear AI memory?\n\nThis cannot be undone.')">
+    <button type="submit"
+            class="px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors">
+      Clear Chat + Memory
+    </button>
   </form>
 </div>
 

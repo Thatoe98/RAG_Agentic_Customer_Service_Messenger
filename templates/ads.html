@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Meta Ads{% endblock %}
+{% block content %}
+
+{% if not configured %}
+{# ── Not configured banner ─────────────────────────────────────────────────── #}
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-6">
+  <h2 class="text-base font-semibold text-amber-900 mb-2">Meta Ads not configured</h2>
+  <p class="text-sm text-amber-800 mb-3">
+    To connect your ad account, set the following variables in your
+    <code class="bg-amber-100 px-1 rounded">.env</code> file and restart the server:
+  </p>
+  <pre class="bg-amber-100 rounded p-3 text-xs text-amber-900 mb-3">META_AD_ACCOUNT_ID=your_numeric_ad_account_id
+META_ADS_ACCESS_TOKEN=your_token_with_ads_management</pre>
+  <p class="text-sm text-amber-800">
+    See <strong>META_ADS_SETUP.md</strong> in the project root for step-by-step instructions
+    (how to get your Ad Account ID, create a never-expiring token, and which permissions to enable).
+  </p>
+</div>
+
+{% else %}
+
+{# ── Page header + period selector ────────────────────────────────────────── #}
+<div class="flex items-center justify-between mb-6 gap-4 flex-wrap">
+  <div>
+    <h1 class="text-xl font-semibold text-slate-900">Meta Ads</h1>
+    <p class="text-sm text-slate-500 mt-1">Campaign performance and AI recommendations. Amounts in your ad account's currency.</p>
+  </div>
+  <div class="flex gap-1 text-sm">
+    {% for label, preset in [("Today", "today"), ("7 days", "last_7d"), ("30 days", "last_30d")] %}
+    <a href="/admin/ads?period={{ preset }}"
+       class="px-3 py-1.5 rounded-md {% if period == preset %}bg-indigo-600 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
+      {{ label }}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if error %}
+<div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 text-sm text-red-800">
+  <strong>API error:</strong> {{ error }}
+</div>
+{% endif %}
+
+{# ── Account insight cards ──────────────────────────────────────────────────── #}
+{% if insights %}
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+    <div class="text-xs text-slate-500 mb-1">Spend</div>
+    <div class="text-xl font-semibold text-slate-900">{{ insights.spend | round(2) }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+    <div class="text-xs text-slate-500 mb-1">Impressions</div>
+    <div class="text-xl font-semibold text-slate-900">{{ "{:,}".format(insights.impressions) }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+    <div class="text-xs text-slate-500 mb-1">Clicks</div>
+    <div class="text-xl font-semibold text-slate-900">{{ "{:,}".format(insights.clicks) }}</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+    <div class="text-xs text-slate-500 mb-1">CTR</div>
+    <div class="text-xl font-semibold text-slate-900">{{ insights.ctr | round(2) }}%</div>
+  </div>
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+    <div class="text-xs text-slate-500 mb-1">Reach</div>
+    <div class="text-xl font-semibold text-slate-900">{{ "{:,}".format(insights.reach) }}</div>
+  </div>
+</div>
+{% else %}
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6 text-sm text-slate-400 text-center py-8">
+  No account-level insights for this period. The account may have no spend in this window.
+</div>
+{% endif %}
+
+{# ── Campaign table ─────────────────────────────────────────────────────────── #}
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
+  <div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-slate-700">Campaigns</h2>
+    <span class="text-xs text-slate-400">{{ campaigns | length }} campaign{{ "s" if campaigns | length != 1 }}</span>
+  </div>
+  {% if campaigns %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-4 py-2 text-left">Name</th>
+          <th class="px-4 py-2 text-left">Status</th>
+          <th class="px-4 py-2 text-left">Objective</th>
+          <th class="px-4 py-2 text-right">Daily Budget</th>
+          <th class="px-4 py-2 text-right">Spend</th>
+          <th class="px-4 py-2 text-right">Clicks</th>
+          <th class="px-4 py-2 text-right">CTR</th>
+          <th class="px-4 py-2 text-center">Control</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100" id="campaigns-tbody">
+        {% for c in campaigns %}
+        {% include "_ads_campaign_row.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-sm text-slate-400 text-center py-10">No campaigns found in this ad account.</p>
+  {% endif %}
+</div>
+
+{# ── AI Recommendations ─────────────────────────────────────────────────────── #}
+<div class="flex items-start justify-between mb-4 gap-4 flex-wrap">
+  <div>
+    <h2 class="text-base font-semibold text-slate-900">AI Ad Recommendations</h2>
+    <p class="text-sm text-slate-500 mt-1">Gemini analyzes your campaign performance and suggests specific improvements.</p>
+  </div>
+  <button hx-post="/admin/ads/recommend"
+          hx-target="#ads-reco-result"
+          hx-swap="innerHTML"
+          hx-indicator="#ads-spinner"
+          class="shrink-0 flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg font-medium transition-colors">
+    <svg id="ads-spinner" class="htmx-indicator animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+    </svg>
+    Get AI Recommendations
+  </button>
+</div>
+<div id="ads-reco-result" class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+  <p class="text-slate-400 text-sm text-center py-8">
+    Click "Get AI Recommendations" to analyze your campaigns and get Gemini-powered suggestions.
+  </p>
+</div>
+
+{% endif %}{# /configured #}
+
+<style>
+  .htmx-indicator { display: none; }
+  .htmx-request .htmx-indicator { display: block; }
+  .htmx-request.htmx-indicator { display: block; }
+</style>
+{% endblock %}

@@ -25,6 +25,10 @@ SESSION_SECRET = os.environ.get("SESSION_SECRET", "change-me-in-production")
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_SUPERVISOR_CHAT_ID = os.environ["TELEGRAM_SUPERVISOR_CHAT_ID"]
 
+# Meta Ads (optional — app boots normally without these)
+META_AD_ACCOUNT_ID = os.environ.get("META_AD_ACCOUNT_ID", "")
+META_ADS_ACCESS_TOKEN = os.environ.get("META_ADS_ACCESS_TOKEN", "")
+
 # Bot behavior
 GREETING_MESSAGE = os.environ.get(
     "GREETING_MESSAGE",

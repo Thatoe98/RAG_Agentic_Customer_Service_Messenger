@@ -46,22 +46,18 @@
   <!-- Guidelines sidebar -->
   <aside class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 h-[75vh] overflow-y-auto">
     <h3 class="font-semibold text-slate-900 mb-1">Active Guidelines</h3>
-    <p class="text-xs text-slate-500 mb-3">Behavior rules injected into the customer bot. Edit them through chat.</p>
-    {% if guidelines %}
-    <ul class="space-y-2">
-      {% for g in guidelines %}
-      <li class="text-sm bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
-        <span class="text-slate-400 mr-1">#{{ g.id }}</span>{{ g.text }}
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="text-sm text-slate-400">No guidelines yet.</p>
-    {% endif %}
+    <p class="text-xs text-slate-500 mb-3">Behavior rules injected into the customer bot. Edit inline or via chat.</p>
+    {% include "_guidelines.html" %}
   </aside>
 </div>
 
 <script>
+  // Scroll to bottom on initial page load
+  window.addEventListener("DOMContentLoaded", () => {
+    const box = document.getElementById("messages");
+    if (box) box.scrollTop = box.scrollHeight;
+  });
+  // Scroll to bottom after each new chat turn is inserted
   htmx.on("#messages", "htmx:afterSwap", () => {
     const box = document.getElementById("messages");
     box.scrollTop = box.scrollHeight;

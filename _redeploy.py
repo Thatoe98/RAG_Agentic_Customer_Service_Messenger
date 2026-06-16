@@ -27,6 +27,8 @@ FILES = [
     "db.py",
     "usage_log.py",
     "conversations.py",
+    "config.py",
+    "ads.py",
     "templates/base.html",
     "templates/analytics.html",
     "templates/conversations.html",
@@ -35,6 +37,12 @@ FILES = [
     "templates/_recommendations_result.html",
     "templates/_conv_rows.html",
     "templates/_messages.html",
+    "templates/chat.html",
+    "templates/_guidelines.html",
+    "templates/_guideline_edit.html",
+    "templates/ads.html",
+    "templates/_ads_campaign_row.html",
+    "templates/_ads_reco_result.html",
 ]
 # ──────────────────────────────────────────────────────────────────────────────
 

@@ -95,6 +95,14 @@ def persist_message(psid: str, role: str, content: str):
         conn.commit()
 
 
+def delete_messages(psid: str):
+    """Wipe all SQLite message history for a user."""
+    with write_lock:
+        conn = get_conn()
+        conn.execute("DELETE FROM messages WHERE psid = ?", (psid,))
+        conn.commit()
+
+
 def get_messages(psid: str) -> list[dict]:
     rows = get_conn().execute(
         "SELECT id, role, content, ts FROM messages WHERE psid = ? ORDER BY ts ASC",

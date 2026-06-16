@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 import asyncio
 
+import ads
 import conversations as convdb
 from db import get_conn, write_lock
 import guidelines
@@ -22,7 +23,7 @@ import rag
 import store
 import usage_log
 from admin import trainer_agent
-from config import ADMIN_PASSWORD, GEMINI_API_KEY, GEMINI_MODEL
+from config import ADMIN_PASSWORD, GEMINI_API_KEY, GEMINI_MODEL, META_AD_ACCOUNT_ID, META_ADS_ACCESS_TOKEN
 from google import genai
 from google.genai import types as gtypes
 
@@ -272,6 +273,121 @@ async def conversation_reply(request: Request, psid: str, message: str = Form(..
     return RedirectResponse(f"/admin/conversations/{psid}", status_code=303)
 
 
+@router.post("/conversations/{psid}/refresh-profile")
+async def refresh_profile(request: Request, psid: str):
+    """Re-fetch the Facebook profile for one user and update the DB."""
+    if not _authed(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    profile = await messenger.get_user_profile(psid)
+    if profile.get("first_name") or profile.get("last_name"):
+        convdb.upsert_user(
+            psid,
+            first_name=profile.get("first_name", ""),
+            last_name=profile.get("last_name", ""),
+            profile_pic=profile.get("profile_pic", ""),
+        )
+        log.info("Refreshed profile for %s: %s %s", psid, profile.get("first_name"), profile.get("last_name"))
+    else:
+        log.info("Profile fetch for %s returned no name (app may still be in Dev mode)", psid)
+    return RedirectResponse(f"/admin/conversations/{psid}", status_code=303)
+
+
+@router.post("/conversations/refresh-all-profiles")
+async def refresh_all_profiles(request: Request):
+    """Re-fetch Facebook profiles for every user still showing a raw PSID as their name."""
+    if not _authed(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    users = convdb.list_users(limit=500)
+    unknown = [u for u in users if (u.get("name") or u["psid"]) == u["psid"]]
+    updated = 0
+    for u in unknown:
+        psid = u["psid"]
+        try:
+            profile = await messenger.get_user_profile(psid)
+            if profile.get("first_name") or profile.get("last_name"):
+                convdb.upsert_user(
+                    psid,
+                    first_name=profile.get("first_name", ""),
+                    last_name=profile.get("last_name", ""),
+                    profile_pic=profile.get("profile_pic", ""),
+                )
+                updated += 1
+        except Exception:
+            log.exception("Failed to refresh profile for %s", psid)
+    log.info("Batch profile refresh: %d/%d resolved", updated, len(unknown))
+    return RedirectResponse(f"/admin/conversations?refreshed={updated}&total={len(unknown)}", status_code=303)
+
+
+@router.post("/conversations/{psid}/clear-memory")
+async def clear_memory(request: Request, psid: str):
+    """Clear the in-memory LLM context for this user. SQLite history untouched."""
+    if not _authed(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    store.clear_messages(psid)
+    log.info("Admin cleared in-memory context for %s", psid)
+    return RedirectResponse(f"/admin/conversations/{psid}", status_code=303)
+
+
+@router.post("/conversations/{psid}/clear-all")
+async def clear_all(request: Request, psid: str):
+    """Clear in-memory context AND wipe all SQLite message history for this user."""
+    if not _authed(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    store.clear_messages(psid)
+    convdb.delete_messages(psid)
+    log.info("Admin cleared all history for %s", psid)
+    return RedirectResponse(f"/admin/conversations/{psid}", status_code=303)
+
+
+# ── Guidelines management (HTMX partials) ────────────────────────────────────
+
+@router.get("/guidelines", response_class=HTMLResponse)
+async def guidelines_partial(request: Request):
+    if not _authed(request):
+        return HTMLResponse("", status_code=401)
+    return templates.TemplateResponse(
+        request, "_guidelines.html",
+        {"guidelines": guidelines.list_guidelines()},
+    )
+
+
+@router.post("/guidelines/{gid}/delete", response_class=HTMLResponse)
+async def guideline_delete(request: Request, gid: int):
+    if not _authed(request):
+        return HTMLResponse("", status_code=401)
+    guidelines.delete_guideline(gid)
+    return templates.TemplateResponse(
+        request, "_guidelines.html",
+        {"guidelines": guidelines.list_guidelines()},
+    )
+
+
+@router.get("/guidelines/{gid}/edit", response_class=HTMLResponse)
+async def guideline_edit_form(request: Request, gid: int):
+    if not _authed(request):
+        return HTMLResponse("", status_code=401)
+    g = next((x for x in guidelines.list_guidelines() if x["id"] == gid), None)
+    if not g:
+        return HTMLResponse("Not found", status_code=404)
+    return templates.TemplateResponse(
+        request, "_guideline_edit.html",
+        {"g": g},
+    )
+
+
+@router.post("/guidelines/{gid}/update", response_class=HTMLResponse)
+async def guideline_update(request: Request, gid: int, text: str = Form(...)):
+    if not _authed(request):
+        return HTMLResponse("", status_code=401)
+    text = text.strip()
+    if text:
+        guidelines.update_guideline(gid, text)
+    return templates.TemplateResponse(
+        request, "_guidelines.html",
+        {"guidelines": guidelines.list_guidelines()},
+    )
+
+
 # ── Analytics ─────────────────────────────────────────────────────────────────
 
 @router.get("/analytics", response_class=HTMLResponse)
@@ -375,5 +491,181 @@ Be specific to the university consulting business. Format as a numbered list."""
 
     return templates.TemplateResponse(
         request, "_recommendations_result.html",
+        {"result": result, "ts_str": ts_str},
+    )
+
+
+# ── Meta Ads ──────────────────────────────────────────────────────────────────
+
+_CONFIGURED = bool(META_ADS_ACCESS_TOKEN and META_AD_ACCOUNT_ID)
+
+
+@router.get("/ads", response_class=HTMLResponse)
+async def ads_page(request: Request, period: str = "last_7d"):
+    if not _authed(request):
+        return RedirectResponse("/admin/login", status_code=303)
+
+    insights: dict = {}
+    campaigns: list = []
+    error: str | None = None
+
+    if _CONFIGURED:
+        try:
+            insights, campaigns = await asyncio.gather(
+                ads.get_account_insights(period),
+                ads.list_campaigns(period),
+            )
+        except Exception:
+            log.exception("Ads dashboard data fetch failed")
+            error = "Could not load ads data — check server logs and verify your token is valid."
+
+    return templates.TemplateResponse(
+        request, "ads.html",
+        {
+            "active": "ads",
+            "configured": _CONFIGURED,
+            "period": period,
+            "insights": insights,
+            "campaigns": campaigns,
+            "error": error,
+        },
+    )
+
+
+@router.post("/ads/campaign/toggle", response_class=HTMLResponse)
+async def ads_campaign_toggle(
+    request: Request,
+    campaign_id: str = Form(...),
+    new_status: str = Form(...),
+):
+    if not _authed(request):
+        return HTMLResponse("Unauthorized", status_code=401)
+
+    try:
+        await ads.set_campaign_status(campaign_id, new_status)
+    except Exception:
+        log.exception("Failed to toggle campaign %s → %s", campaign_id, new_status)
+        return HTMLResponse(
+            f'<tr><td colspan="8" class="px-4 py-3 text-red-600 text-sm">'
+            f'Error: could not update campaign status. Check server logs.</td></tr>',
+            status_code=200,
+        )
+
+    # Re-fetch the updated campaign to render the refreshed row
+    c = await ads.get_campaign(campaign_id)
+    if c is None:
+        return HTMLResponse(
+            f'<tr><td colspan="8" class="px-4 py-3 text-amber-600 text-sm">'
+            f'Status updated but could not reload campaign data.</td></tr>',
+            status_code=200,
+        )
+    return templates.TemplateResponse(request, "_ads_campaign_row.html", {"c": c})
+
+
+@router.post("/ads/campaign/budget", response_class=HTMLResponse)
+async def ads_campaign_budget(
+    request: Request,
+    campaign_id: str = Form(...),
+    daily_budget: float = Form(...),
+):
+    if not _authed(request):
+        return HTMLResponse("Unauthorized", status_code=401)
+
+    try:
+        await ads.set_campaign_budget(campaign_id, daily_budget)
+    except ValueError as exc:
+        log.warning("Budget validation error: %s", exc)
+        return HTMLResponse(
+            f'<tr><td colspan="8" class="px-4 py-3 text-red-600 text-sm">'
+            f'Invalid budget: {exc}</td></tr>',
+            status_code=200,
+        )
+    except Exception:
+        log.exception("Failed to update budget for campaign %s", campaign_id)
+        return HTMLResponse(
+            f'<tr><td colspan="8" class="px-4 py-3 text-red-600 text-sm">'
+            f'Error: could not update budget. Check server logs.</td></tr>',
+            status_code=200,
+        )
+
+    c = await ads.get_campaign(campaign_id)
+    if c is None:
+        return HTMLResponse(
+            f'<tr><td colspan="8" class="px-4 py-3 text-amber-600 text-sm">'
+            f'Budget updated but could not reload campaign data.</td></tr>',
+            status_code=200,
+        )
+    return templates.TemplateResponse(request, "_ads_campaign_row.html", {"c": c})
+
+
+@router.post("/ads/recommend", response_class=HTMLResponse)
+async def ads_recommend(request: Request):
+    if not _authed(request):
+        return HTMLResponse("Unauthorized", status_code=401)
+
+    try:
+        account_insights, campaigns = await asyncio.gather(
+            ads.get_account_insights("last_7d"),
+            ads.list_campaigns("last_7d"),
+        )
+    except Exception:
+        log.exception("Failed to fetch ads data for AI recommendation")
+        account_insights, campaigns = {}, []
+
+    # Build structured data for the prompt
+    acct_text = (
+        f"- Total spend (7d): {account_insights.get('spend', 'N/A')}\n"
+        f"- Impressions: {account_insights.get('impressions', 'N/A')}\n"
+        f"- Clicks: {account_insights.get('clicks', 'N/A')}\n"
+        f"- CTR: {account_insights.get('ctr', 'N/A')}%\n"
+        f"- CPC: {account_insights.get('cpc', 'N/A')}\n"
+        f"- Reach: {account_insights.get('reach', 'N/A')}\n"
+    ) if account_insights else "No account-level data available.\n"
+
+    camp_lines = []
+    for c in campaigns:
+        status_label = c.get("effective_status", "UNKNOWN")
+        budget_label = f"{c.get('daily_budget')} (daily)" if c.get("daily_budget") else "lifetime budget"
+        camp_lines.append(
+            f"  • {c['name']} | {status_label} | {c.get('objective','').replace('_',' ')} | "
+            f"Budget: {budget_label} | Spend: {c.get('spend', 0):.2f} | "
+            f"Clicks: {c.get('clicks', 0)} | CTR: {c.get('ctr', 0):.2f}%"
+        )
+    camp_text = "\n".join(camp_lines) if camp_lines else "No campaigns found."
+
+    prompt = f"""You are an expert digital marketing consultant analyzing Meta (Facebook/Instagram) ad performance for Cross Culture Education, a business helping Myanmar students apply to Thai universities.
+
+Account performance (last 7 days):
+{acct_text}
+Campaigns ({len(campaigns)} total):
+{camp_text}
+
+Provide 5–7 specific, actionable recommendations to improve this ad account's performance. For each recommendation:
+1. Title (concise)
+2. Why — one sentence based on the data above
+3. How — specific action (e.g. "pause campaign X", "increase budget on campaign Y", "test a new audience targeting Z", "change objective from X to Y")
+
+Focus on the Myanmar→Thailand university consulting context. Be direct and specific — avoid generic advice."""
+
+    ts_str = None
+    try:
+        response = await asyncio.wait_for(
+            _gemini.aio.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=[gtypes.Content(role="user", parts=[gtypes.Part(text=prompt)])],
+            ),
+            timeout=45.0,
+        )
+        usage_log.log_response(response, source="ads", model=GEMINI_MODEL)
+        result = response.candidates[0].content.parts[0].text
+        ts_str = datetime.now(timezone.utc).strftime("%b %d %Y, %H:%M UTC")
+    except asyncio.TimeoutError:
+        result = "Request timed out (45 s). Try again — Gemini may be slow."
+    except Exception:
+        log.exception("Ads AI recommendation generation failed")
+        result = "Failed to generate recommendations. Check server logs."
+
+    return templates.TemplateResponse(
+        request, "_ads_reco_result.html",
         {"result": result, "ts_str": ts_str},
     )

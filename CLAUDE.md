@@ -1,123 +1,60 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Messenger Bot — Project Guide
 
 ## Overview
 
-A Facebook Messenger bot for **Cross Culture Education** (Myanmar → Thailand university consulting) that:
-- Answers customer inquiries professionally using Gemini AI (`gemini-3-flash-preview`)
-- Retrieves company knowledge via **local RAG** (semantic search over an embedded knowledge base)
-- Escalates to a human supervisor via Telegram with full conversation context
-- Supervisor replies from Telegram are forwarded back to the customer on Messenger
-- Supervisor sends `/done` to hand the conversation back to the bot; `/reset` to clear escalation silently
+Facebook Messenger bot for **Cross Culture Education** (Myanmar → Thailand university consulting). Answers inquiries via Gemini AI with local RAG, escalates to a supervisor via Telegram, and ships an admin webapp at `/admin`.
 
-It ships an **admin webapp** (`/admin`) for the business owner to:
-- **Train the bot via chat** — adjust tone/strategy/behavior; the trainer agent saves persistent *guidelines* injected into the customer bot's system prompt
-- **Manage knowledge files** — upload (PDF / DOCX / TXT / CSV / MD), delete; uploads are chunked, embedded, indexed for RAG
-- **View conversations** — browse all users, read full message histories, toggle bot on/off per user, reply directly from the panel
-- **Analytics** — total users, active users, message counts, daily breakdown, escalation/bot-off counts
-- **Token usage** — input/output token counts and USD cost by source (agent, trainer, recommendations)
-- **AI recommendations** — on-demand Gemini analysis of recent messages + guidelines → actionable suggestions
+**Admin webapp features:** training chat (guidelines), knowledge-file manager, conversations (history / toggle bot / direct reply / clear memory), analytics, token usage, AI recommendations, Meta Ads dashboard.
+
+---
+
+## Development
+
+```bash
+# Setup (venv already at .venv/)
+pip install -r requirements.txt
+
+# Run locally
+uvicorn main:app --reload --port 8000
+# Admin panel: http://localhost:8000/admin
+
+# Webhooks need public HTTPS — use ngrok for local testing
+ngrok http 8000
+```
+
+Copy `.env.example` → `.env`. No test suite — verify by running the app.
 
 ---
 
 ## Deployment
 
-**Hostinger KVM2 VPS** — Ubuntu 24.04, IP `72.60.235.218`  
-**Domain:** `bot.autom8agency.cloud`  
-**Stack:** Docker + Traefik (reverse proxy with auto-TLS from Let's Encrypt)
-
-### How it runs on the server
-
-Traefik is part of the **n8n stack** at `/docker/n8n/docker-compose.yml`. It owns ports 80 and 443 and serves as the HTTPS entry point for all services, including the bot.
-
-The bot lives at `/docker/messenger-bot/` and joins the shared `n8n_default` Docker network so Traefik can route `bot.autom8agency.cloud` to it.
-
-```
-Internet → Traefik (:443) → n8n_default network → messenger-bot:8000
-```
-
-### Deploy scripts (run locally from this directory)
+**Hostinger KVM2 VPS** — Ubuntu 24.04 · `72.60.235.218` · domain `bot.autom8agency.cloud`  
+**Stack:** Docker + Traefik (in n8n stack at `/docker/n8n/docker-compose.yml`). Bot joins `n8n_default` network.
 
 ```bash
-python _deploy.py      # full fresh deploy: upload all files, build image, start
-python _redeploy.py    # incremental: upload changed files, rebuild, restart
+python _deploy.py      # full fresh deploy
+python _redeploy.py    # incremental: upload changed files in FILES list, rebuild, restart
 ```
 
-Both read credentials from `.env` (`SERVER_HOST`, `SERVER_USER`, `SERVER_PASS`, `SERVER_DIR`, `BOT_DOMAIN`).
+Both read `SERVER_HOST / SERVER_USER / SERVER_PASS / SERVER_DIR / BOT_DOMAIN` from `.env`.  
+SSH only reachable via Hostinger hPanel terminal (port 22 blocked externally).
 
-### Server maintenance
+**When adding new files**, add them to the `FILES` list in `_redeploy.py` — it only uploads what's listed.
 
 ```bash
-# SSH access (via Hostinger hPanel terminal — port 22 is not externally reachable)
-# Docker management
-docker ps
+# Server-side
 docker logs messenger-bot-messenger-bot-1 --tail 50
 cd /docker/messenger-bot && docker compose up -d
-
-# If the site becomes unreachable (conntrack overflow):
-systemctl restart docker   # resets Docker networking, containers auto-restart
-# Or as a last resort: reboot the VPS from hPanel
-
-# Conntrack limits (already applied — prevents the networking issue):
-# net.netfilter.nf_conntrack_max = 131072
-# net.netfilter.nf_conntrack_tcp_timeout_established = 3600
-# net.netfilter.nf_conntrack_tcp_timeout_time_wait = 15
-
-# Auto-recovery cron (already set):
-# */5 * * * * curl -sf --max-time 10 http://localhost:80/health > /dev/null || systemctl restart docker
+# Networking issue (conntrack overflow): systemctl restart docker
 ```
 
-### Webhook registration
-
-**Facebook** (Meta Developer Portal → Messenger → Webhooks):
-- Callback URL: `https://bot.autom8agency.cloud/webhook`
-- Verify Token: `FB_VERIFY_TOKEN` from `.env`
-- Subscribe to: `messages`
-
-**Telegram** (run once):
-```bash
-curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://bot.autom8agency.cloud/telegram-webhook"
-```
-
----
-
-## Project Structure
-
-```
-messenger_bot_with_claude/
-├── main.py                  # FastAPI app: FB + Telegram webhooks, health, session middleware
-├── agent.py                 # Customer-facing Gemini agent: search_knowledge + escalate_to_human
-├── messenger.py             # Facebook Send API (send message, typing, get profile)
-├── store.py                 # In-memory conversation state + Telegram↔PSID mapping
-├── conversations.py         # SQLite: user profiles, message history, analytics queries
-├── usage_log.py             # Token usage logging + cost stats (Gemini 2.0 Flash pricing)
-├── config.py                # Environment variable loading
-├── db.py                    # SQLite schema bootstrap (documents, chunks, guidelines, users, messages, token_usage, recommendations)
-├── rag.py                   # Embedding, chunking, ingest, semantic search, document CRUD
-├── guidelines.py            # Admin-trained behavior guidelines + customer system-prompt composition
-├── admin/
-│   ├── routes.py            # Admin webapp: login, training chat, files, conversations, analytics, recommendations
-│   └── trainer_agent.py     # Trainer chat agent (RAG search + guideline edit tools)
-├── tools/
-│   └── handover.py          # Telegram notification and message forwarding
-├── templates/               # Jinja2 + HTMX admin UI
-│   ├── base.html, login.html, chat.html, files.html
-│   ├── conversations.html, conversation_view.html
-│   ├── analytics.html, recommendations.html
-│   └── _chat_turn.html, _conv_rows.html, _messages.html, _recommendations_result.html
-├── prompts/
-│   ├── system_prompt.txt    # Customer bot persona, tone, escalation rules
-│   └── trainer_prompt.txt   # Trainer agent persona (admin-facing)
-├── data/                    # SQLite knowledge.db lives here (gitignored)
-├── _deploy.py               # Full fresh deploy via SSH (upload + build + start)
-├── _redeploy.py             # Incremental redeploy via SSH (upload changed files + restart)
-├── _ssh_compose.py          # SSH util: run docker compose commands
-├── _ssh_docker.py           # SSH util: show docker ps
-├── _ssh_explore.py          # SSH util: explore server filesystem
-├── _ssh_start.py            # SSH util: start containers
-├── requirements.txt
-├── DEPLOY.md                # Hostinger VPS deployment guide (nginx/systemd path, superseded by Docker)
-└── .env.example             # All required env vars with descriptions
-```
+**Webhook registration** (one-time):
+- Facebook: Meta Developer Portal → Messenger → Webhooks → `https://bot.autom8agency.cloud/webhook`
+- Telegram: `curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://bot.autom8agency.cloud/telegram-webhook"`
 
 ---
 
@@ -128,64 +65,67 @@ Customer (Messenger)
         │  POST /webhook
         ▼
    main.py (FastAPI)
-        │
         ▼
-   agent.py (Gemini)   ← system prompt = base persona + admin guidelines
-    ├── search_knowledge(query) → rag.py → cosine over SQLite chunks → top-k text
-    └── escalate_to_human(reason)
-              │
-              ▼
-        tools/handover.py → Telegram notify supervisor (with transcript)
-        Thread marked escalated — bot goes silent
+   agent.py (Gemini)   ← system_prompt.txt + active guidelines from DB
+    ├── search_knowledge(query) → rag.py → NumPy cosine over SQLite chunks
+    └── escalate_to_human(reason) → tools/handover.py → Telegram
+          Thread marked escalated — bot silent until supervisor sends /done or /reset
 
-Supervisor (Telegram)
-        │  Reply to escalation message
-        ▼
-   POST /telegram-webhook
-   ├── /done  → unlock thread, bot resumes
-   ├── /reset → unlock silently (no customer message)
-   └── text   → forward to customer on Messenger
+Supervisor (Telegram) replies → POST /telegram-webhook → forwarded to customer on Messenger
 ```
 
-### Admin webapp (`/admin`)
-
 ```
-Business owner (browser)
-        │  login → signed session cookie
-        ▼
-   admin/routes.py
-   ├── /admin/chat          trainer_agent.py (Gemini): search + guideline CRUD
-   ├── /admin/files         upload → rag.ingest() → chunk + embed → SQLite
-   │                        delete → rag.delete_document()
-   ├── /admin/conversations list users → view history → toggle bot → admin reply
-   ├── /admin/analytics     user/message stats + daily breakdown + token cost
-   └── /admin/recommendations Gemini analysis of recent data → suggestions
+Admin (browser) → admin/routes.py
+  ├── /admin/chat          trainer_agent.py: search KB + guideline CRUD (add/edit/delete)
+  ├── /admin/files         rag.ingest() → chunk + embed → SQLite
+  ├── /admin/conversations users list, message history, bot toggle, direct reply,
+  │                        clear-memory (wipes in-memory LLM context),
+  │                        clear-all (wipes context + SQLite messages),
+  │                        refresh-profile (re-fetches name from Facebook)
+  ├── /admin/analytics     stats + token cost
+  ├── /admin/recommendations Gemini analysis → suggestions
+  └── /admin/ads           Meta Ads dashboard: account insights, campaign list,
+                           pause/resume/budget controls, AI recommendations
+                           (powered by ads.py → graph.facebook.com/v22.0 Marketing API)
 ```
 
-### Admin inbox takeover (Facebook Page inbox)
+**Admin inbox takeover:** when the owner replies from the Facebook Page inbox directly, the bot detects the echo event and silences itself for `ADMIN_SILENCE_TIMEOUT` minutes.
 
-When the business owner replies directly from the Facebook Page inbox (not the admin panel), the bot detects the echo event and silences itself for `ADMIN_SILENCE_TIMEOUT` minutes. This lets the owner handle a conversation manually without going through the admin panel.
+---
+
+## Meta Ads (`ads.py`)
+
+Graph API v22.0, Marketing API. All functions are async `httpx.AsyncClient` — same pattern as `messenger.py`. Config vars `META_AD_ACCOUNT_ID` and `META_ADS_ACCESS_TOKEN` are **optional** (`os.environ.get`); the page shows a "not configured" banner when they are absent and the app boots normally.
+
+**Budgets:** the Marketing API always returns and accepts budgets in *minor* currency units (satang for THB, cents for USD). `ads.py` converts to major units (÷100) for display and back (×100) before writes. The user enters major units in the budget edit form.
+
+**Token permission needed:** `ads_read` (for insights) + `ads_management` (for pause/resume/budget). The existing `FB_PAGE_ACCESS_TOKEN` does NOT have these — a separate System User token is required. See `META_ADS_SETUP.md`.
 
 ---
 
 ## RAG Pipeline (`rag.py`)
 
-- **Embedding model:** `gemini-embedding-001`, 768-dim, L2-normalized. Query: `RETRIEVAL_QUERY`; docs: `RETRIEVAL_DOCUMENT`.
-- **Chunking:** ~1000 chars per chunk, ~150 char overlap, split on paragraph/sentence boundaries.
-- **Storage:** SQLite. `chunks.embedding` is a raw float32 BLOB. No vector extension.
-- **Search:** NumPy cosine similarity over all chunk vectors. Fast for thousands of chunks.
-- **Parsers:** PDF (`pypdf`), DOCX (`python-docx`), TXT/MD/CSV (decoded text).
-- **Cache:** in-memory vector matrix invalidated on any ingest/delete.
+Embedding model `gemini-embedding-001`, 768-dim, L2-normalized. Chunks ~1000 chars / 150 overlap stored as float32 BLOBs in SQLite. Search is NumPy cosine similarity — no vector extension needed. Cache (in-memory matrix) invalidated on any ingest/delete.
 
 ## Behavior Training (`guidelines.py`)
 
-The customer bot's `system_instruction` = `prompts/system_prompt.txt` + a `## Learned Guidelines` block from the DB. The trainer chat agent edits guidelines through tool calls. Changes take effect on the next customer message — no redeploy.
+`system_instruction` = `prompts/system_prompt.txt` + `## Learned Guidelines` block from DB. Trainer agent edits guidelines via tool calls; changes take effect on next customer message. Guidelines sidebar in `/admin/chat` shows sequential display numbers (1, 2, 3… via `loop.index`) — **not** DB ids, which have gaps after deletes. Each row has inline Edit/Delete buttons (HTMX partials: `_guidelines.html`, `_guideline_edit.html`). Trainer agent `list_guidelines` output also uses display numbers + shows `(id=N)` so the model uses the correct DB id for mutations.
+
+---
+
+## Facebook User Profile API
+
+The old `GET /{psid}?fields=first_name,last_name,profile_pic` endpoint is **deprecated** — returns error 100/33 for all non-admin PSIDs. The current working approach is the Conversations API:
+
+```
+GET /me/conversations?user_id={psid}&fields=participants  →  participant.name
+```
+
+Profile pictures are **not available** via any current Graph API endpoint for PSIDs. The admin account (app developer) is the only exception because it bypasses the restriction. Use "Refresh All Names" on the conversations list to back-fill names for existing users.
 
 ---
 
 ## Environment Variables
-
-Copy `.env.example` to `.env` and fill in all values.
 
 | Variable | Description |
 |---|---|
@@ -200,49 +140,23 @@ Copy `.env.example` to `.env` and fill in all values.
 | `EMBEDDING_MODEL` | Optional — defaults to `gemini-embedding-001` |
 | `DB_PATH` | Optional — defaults to `data/knowledge.db` |
 | `GREETING_MESSAGE` | Optional — override the default first-contact greeting |
-| `ADMIN_SILENCE_TIMEOUT_MINUTES` | Optional — minutes bot stays silent after admin inbox takeover (default 30) |
-| `SERVER_HOST` | VPS IP — used by deploy scripts |
-| `SERVER_USER` | VPS SSH user (root) |
-| `SERVER_PASS` | VPS SSH password |
-| `SERVER_DIR` | Remote app directory (default `/docker/messenger-bot`) |
+| `ADMIN_SILENCE_TIMEOUT_MINUTES` | Optional — bot silence after admin inbox takeover (default 30) |
+| `META_AD_ACCOUNT_ID` | Optional — numeric ad account ID (without `act_` prefix) for `/admin/ads` |
+| `META_ADS_ACCESS_TOKEN` | Optional — System User token with `ads_read` + `ads_management` permissions |
+| `SERVER_HOST/USER/PASS/DIR` | VPS credentials for deploy scripts |
 | `BOT_DOMAIN` | Public domain (default `bot.autom8agency.cloud`) |
 
----
-
-## Current Status
-
-### Completed
-- [x] Facebook Messenger webhook (receive, send, typing indicator)
-- [x] Gemini AI agent with tool use (agentic loop, 10-iteration safety cap)
-- [x] Force-escalation when customer explicitly asks for human (bypasses model judgment)
-- [x] `escalate_to_human` tool → Telegram handover with transcript
-- [x] Bidirectional bridge: supervisor Telegram replies → customer Messenger
-- [x] `/done` command returns conversation to bot (clears history)
-- [x] `/reset` command clears escalation silently
-- [x] Thread-safe in-memory conversation store
-- [x] Local RAG knowledge base (SQLite + Gemini embeddings)
-- [x] Admin webapp: training chat + knowledge-file manager
-- [x] Admin conversations view (history, toggle bot, direct reply)
-- [x] Admin analytics (users, messages, daily breakdown, token cost)
-- [x] AI recommendations page
-- [x] Token usage logging with USD cost tracking
-- [x] Admin inbox takeover detection (Facebook Page inbox → bot silences)
-- [x] Facebook webhook signature verification
-- [x] `/health` endpoint
-- [x] Deployed to Hostinger VPS via Docker + Traefik
-- [x] Auto-recovery cron (restarts Docker if health check fails)
-- [x] conntrack limits tuned to prevent networking overflow
-
-### Remaining
-- [ ] Replace `[Company Name]` placeholder in `prompts/system_prompt.txt`
-- [ ] Upload real knowledge documents via `/admin/files`
-- [ ] **Persistence** — `store.py` is in-memory; restart clears escalation state and greeted flags. Swap for Redis before scaling or if restarts become frequent.
+`GEMINI_MODEL` is **hardcoded** to `gemini-3-flash-preview` in `config.py` — not an env var.
 
 ---
 
 ## Notes
 
-- **One uvicorn worker only.** `store.py` is in-memory and SQLite has one shared connection. Multiple workers would split state. One worker is plenty for this workload.
-- **Conversation history survives restarts** (persisted in SQLite via `conversations.py`) but in-memory escalation state (`store.py`) does not.
-- **Gemini model** is `gemini-3-flash-preview` in `config.py`.
-- **SSH to VPS** is only accessible via Hostinger hPanel terminal (port 22 is not reachable from external IPs).
+- **One uvicorn worker only.** `store.py` is in-memory; SQLite has one shared connection. Multiple workers split state.
+- **Escalation state is not persisted.** `store.py` (in-memory) loses escalation flags and greeted state on restart. SQLite message history survives. Swap for Redis before scaling.
+- **`store.clear_messages(psid)`** clears in-memory LLM context only. `convdb.delete_messages(psid)` wipes SQLite history. Admin panel "Clear Memory" / "Clear Chat + Memory" buttons call these respectively.
+- **Trainer chat history** (`_history` in `admin/routes.py`) is in-memory and shared across all admin sessions. Clearing it affects everyone.
+- **Telegram notifications are in Burmese** (`tools/handover.py`) — don't replace unless changing audience.
+- **`usage_log` exports a function named `log`** — always call as `usage_log.log(...)`, never import it directly (shadows `logging.getLogger` locals).
+- **`db.write_lock`** must be held for all SQLite writes; reads don't need it.
+- **Remaining work:** upload real knowledge docs via `/admin/files`; swap `store.py` for Redis if restarts become frequent.

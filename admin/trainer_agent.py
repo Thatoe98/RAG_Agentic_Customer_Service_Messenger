@@ -139,7 +139,11 @@ def _execute_tool(name: str, args: dict) -> str:
         items = guidelines.list_guidelines()
         if not items:
             return "No guidelines set yet."
-        return "\n".join(f"#{g['id']}: {g['text']}" for g in items)
+        # Show sequential display number (matches the UI) plus the real db id for mutations
+        return "\n".join(
+            f"{i + 1}. {g['text']}  (id={g['id']})"
+            for i, g in enumerate(items)
+        )
 
     if name == "save_guideline":
         gid = guidelines.add_guideline(args["text"])
